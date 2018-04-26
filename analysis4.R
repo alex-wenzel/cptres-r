@@ -39,12 +39,21 @@ sc <- ScaleData(object=sc)
 cc.genes <- readLines(con="satija_cell_cycle/regev_lab_cell_cycle_genes.txt")
 s.genes <- cc.genes[1:43]  #S phase genes
 g2m.genes <- cc.genes[44:97]
+sc <- CellCycleScoring(object=sc, s.genes=s.genes, g2m.genes=g2m.genes,
+                       set.ident=TRUE)
+sc <- RunPCA(object=sc, pc.genes=c(s.genes, g2m.genes), do.print=FALSE)
+PCAPlot(object=sc)
+PCAPlot(object=sc, group.by='src')
+sc <- ScaleData(object=sc, vars.to.regress=c("S.Score", "G2M.Score"))
+sc <- RunPCA(object=sc, pc.genes=c(s.genes, g2m.genes), do.print=FALSE)
+PCAPlot(object=sc)
+PCAPlot(object=sc, group.by='src')
 
 ## linear dimensional reduction
 sc <- RunPCA(object=sc, pc.genes=sc@var.genes)
-PCAPlot(object=sc, dim.1=1, dim.2=2)
+PCAPlot(object=sc, dim.1=1, dim.2=2, group.by='old.ident')
 ## commented heatmap because it takes forever
-#PCHeatmap(object=sc, pc.use=1, do.balanced=TRUE, label.columns=FALSE)
+PCHeatmap(object=sc, pc.use=1, do.balanced=TRUE, label.columns=FALSE)
 
 ## Clustering
 sc <- FindClusters(object=sc, reduction.type="pca", dims.use=1:10,
