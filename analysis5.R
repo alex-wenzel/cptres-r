@@ -7,9 +7,6 @@ library(stringr)
 library(liger)
 library(GSA)
 
-## This function implements cell-cycle scoring
-## should be run after scaling/variable genes
-
 scdata <- Read10X(data.dir="full_28k/raw28k/")
 sc <- CreateSeuratObject(raw.data=scdata, min.cells=3, min.genes=3, project="10X_CPTRES")
 
@@ -37,7 +34,7 @@ sc <- FindVariableGenes(object=sc, mean.function=ExpMean, dispersion.function=Lo
 sc <- ScaleData(object=sc)
 
 ## Swaps out sc@ident to the external clustering
-new.ident <- as.factor(read.csv("full_28k/orig_clustering/clusters.csv")$Cluster)
+new.ident <- as.factor(read.csv("full_28k/orig_k9/clusters.csv")$Cluster)
 attributes(new.ident)$names <- attributes(sc@ident)$names
 sc@ident <- new.ident
 
@@ -60,17 +57,35 @@ top50 <- sc.markers %>% group_by(cluster) %>% top_n(50,avg_logFC)
 n.clusters <- max(as.numeric(top50$cluster))
 
 hallmarks.genes <- GSA.read.gmt("msigdb/h.all.v6.1.symbols.gmt")
+hallmarks.res <- read.csv(text="cluster,geneset.name,n.genes.set,pvalue")
 
-gsea.res <- read.csv(text="cluster,geneset.name,n.genes.set,pvalue")
 for (i in 1:n.clusters) {
   cluster.genes <- top50[top50$cluster==i,]$avg_logFC
   names(cluster.genes) <- top50[top50$cluster==i,]$gene
   for (j in 1:length(hallmarks.genes$genesets)) {
     gs.name <- hallmarks.genes$geneset.names[j]
     gs <- hallmarks.genes$genesets[[j]]
-    n.genes.set <- length(intersect(attributes(cluster.genes)$names, hallmarks.genes$genesets[[i]]))
-    gsea.res[nrow(gsea.res)+1,] = c(i, gs.name, n.genes.set, gsea(cluster.genes, gs, plot=FALSE))
+    n.genes.set <- length(intersect(attributes(cluster.genes)$names, hallmarks.genes$genesets[[j]]))
+    hallmarks.res[nrow(hallmarks.res)+1,] = c(i, gs.name, n.genes.set, gsea(cluster.genes, gs, plot=FALSE))
   }
 }
+hallmarks.res <- hallmarks.res[hallmarks.res$n.genes.set>2,]
+hallmarks.res <- hallmarks.res[order(hallmarks.res$cluster, as.numeric(hallmarks.res$pvalue)),]
+write.table(hallmarks.res, "k9_hallmarks_gsea.tsv", quote=FALSE, row.names=FALSE, sep='\t')
 
 reactome.genes <- GSA.read.gmt("msigdb/c2.cp.reactome.v6.1.symbols.gmt")
+reactome.res <- read.csv(text="cluster,geneset.name,n.genes.set,pvalue")
+
+for (i in 1:n.clusters) {
+  cluster.genes <- top50[top50$cluster==i,]$avg_logFC
+  names(cluster.genes) <- top50[top50$cluster==i,]$gene
+  for (j in 1:length(reactome.genes$genesets)) {
+    gs.name <- reactome.genes$geneset.names[j]
+    gs <- reactome.genes$genesets[[j]]
+    n.genes.set <- length(intersect(attributes(cluster.genes)$names, reactome.genes$genesets[[j]]))
+    reactome.res[nrow(reactome.res)+1,] = c(i, gs.name, n.genes.set, gsea(cluster.genes, gs, plot=FALSE))
+  }
+}
+reactome.res <- reactome.res[reactome.res$n.genes.set>2,]
+reactome.res <- reactome.res[order(reactome.res$cluster, as.numeric(reactome.res$pvalue)),]
+write.table(reactome.res, "k9_reactome_gsea.tsv", quote=FALSE, row.names=FALSE, sep='\t')
