@@ -4,6 +4,8 @@
 library(Seurat)
 library(dplyr)
 library(stringr)
+library(liger)
+library(GSA)
 
 ## This function implements cell-cycle scoring
 ## should be run after scaling/variable genes
@@ -52,3 +54,23 @@ TSNEPlot(object=sc, group.by='src')
 sc.markers <- FindAllMarkers(object=sc, min.pct=0.25, thresh.use=0.25)
 top10 <- sc.markers %>% group_by(cluster) %>% top_n(10,avg_logFC)
 DoHeatmap(object=sc, genes.use=top10$gene, slim.col.label=TRUE, remove.key=TRUE)
+
+## GSEA
+top50 <- sc.markers %>% group_by(cluster) %>% top_n(50,avg_logFC)
+n.clusters <- max(as.numeric(top50$cluster))
+
+hallmarks.genes <- GSA.read.gmt("msigdb/h.all.v6.1.symbols.gmt")
+
+gsea.res <- read.csv(text="cluster,geneset.name,n.genes.set,pvalue")
+for (i in 1:n.clusters) {
+  cluster.genes <- top50[top50$cluster==i,]$avg_logFC
+  names(cluster.genes) <- top50[top50$cluster==i,]$gene
+  for (j in 1:length(hallmarks.genes$genesets)) {
+    gs.name <- hallmarks.genes$geneset.names[j]
+    gs <- hallmarks.genes$genesets[[j]]
+    n.genes.set <- length(intersect(attributes(cluster.genes)$names, hallmarks.genes$genesets[[i]]))
+    gsea.res[nrow(gsea.res)+1,] = c(i, gs.name, n.genes.set, gsea(cluster.genes, gs, plot=FALSE))
+  }
+}
+
+reactome.genes <- GSA.read.gmt("msigdb/c2.cp.reactome.v6.1.symbols.gmt")
