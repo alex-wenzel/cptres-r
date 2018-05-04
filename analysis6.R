@@ -90,4 +90,4 @@ for (i in 1:n.clusters) {
 }
 reactome.res <- reactome.res[reactome.res$n.genes.set>2,]
 reactome.res <- reactome.res[order(reactome.res$cluster, as.numeric(reactome.res$pvalue)),]
-write.table(reactome.res, "k7_reactome_gsea.tsv", quote=FALSE, row.names=FALSE, sep='\t')
+write.table(reactome.res, "gsea_res/k7_reactome_gsea.tsv", quote=FALSE, row.names=FALSE, sep='\t')

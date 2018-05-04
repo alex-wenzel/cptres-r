@@ -118,7 +118,7 @@ for (i in 1:n.clusters) {
 }
 hallmarks.res <- hallmarks.res[hallmarks.res$n.genes.set>2,]
 hallmarks.res <- hallmarks.res[order(hallmarks.res$cluster, as.numeric(hallmarks.res$pvalue)),]
-write.table(hallmarks.res, "graphclust_comb_hallmarks_gsea_a7.tsv", quote=FALSE, row.names=FALSE, sep='\t')
+write.table(hallmarks.res, "gsea_res/graphclust_comb_hallmarks_gsea_a7.tsv", quote=FALSE, row.names=FALSE, sep='\t')
 
 reactome.genes <- GSA.read.gmt("msigdb/c2.cp.reactome.v6.1.symbols.gmt")
 reactome.res <- read.csv(text="cluster,geneset.name,n.genes.set,pvalue")
@@ -136,4 +136,4 @@ for (i in 1:n.clusters) {
 }
 reactome.res <- reactome.res[reactome.res$n.genes.set>2,]
 reactome.res <- reactome.res[order(reactome.res$cluster, as.numeric(reactome.res$pvalue)),]
-write.table(reactome.res, "graphclust_comb_reactome_gsea_a7.tsv", quote=FALSE, row.names=FALSE, sep='\t')
+write.table(reactome.res, "gsea_res/graphclust_comb_reactome_gsea_a7.tsv", quote=FALSE, row.names=FALSE, sep='\t')
