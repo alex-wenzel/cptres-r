@@ -35,7 +35,7 @@ sc <- NormalizeData(object=sc, normalization.method="LogNormalize", scale.factor
 sc <- ScaleData(object=sc)
 
 ## Convert to matrix preserving rows with < n% zeros
-n.zero.lim = 0.001*sc@data@Dim[1]
+n.zero.lim = 0.0005*sc@data@Dim[1]
 prevalent.genes <- as.matrix(sc@data[rowSums(sc@data==0)<=n.zero.lim,])
 
 ## Cell Clusters
@@ -60,4 +60,5 @@ anno.col <- data.frame(
 )
 rownames(anno.col) <- colnames(prevalent.genes)
 pheatmap(prevalent.genes, show_rownames=F, show_colnames=F, 
-         cluster_rows=T, annotation_col=anno.col)
+               cluster_rows=T, annotation_col=anno.col)
+
