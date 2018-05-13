@@ -6,13 +6,13 @@
 ### %
 
 ## Input paths for matrix, genes, and barcodes files, and the number of cells to sample
-input.mtx.path <- "/mnt/oncogxA/Projects/CPTRES/RNAExpression/10x/aggregates/10x_5_15/outs/filtered_gene_bc_matrices_mex/GRCh38/matrix.mtx"
-input.barcodes.path <- "/mnt/oncogxA/Projects/CPTRES/RNAExpression/10x/aggregates/10x_5_15/outs/filtered_gene_bc_matrices_mex/GRCh38/barcodes.tsv"
-input.genes.path <- "/mnt/oncogxA/Projects/CPTRES/RNAExpression/10x/aggregates/10x_5_15/outs/filtered_gene_bc_matrices_mex/GRCh38/genes.tsv"
-output.mtx.path <- "subset_5000/matrix.mtx"
-output.barcodes.path <- "subset_5000/barcodes.tsv"
-output.genes.path <- "subset_5000/genes.tsv"
-num.cells <- 5000
+input.mtx.path <- "10x_c14agg/matrix.mtx"
+input.barcodes.path <- "10x_c14agg/barcodes.tsv"
+input.genes.path <- "10x_c14agg/genes.tsv"
+output.mtx.path <- "10x_c14agg_500/matrix.mtx"
+output.barcodes.path <- "10x_c14agg_500/barcodes.tsv"
+output.genes.path <- "10x_c14agg_500/genes.tsv"
+num.cells <- 500
 
 ## Load the input matrix, extract number of cells in the matrix total
 input.mtx <- read.csv(input.mtx.path, skip=2, sep=' ')
