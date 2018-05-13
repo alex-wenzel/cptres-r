@@ -1,0 +1,112 @@
+---
+title: "10x_c14agg Cell Cycle States"
+output: html_notebook
+---
+
+This notebook produces a heatmap for the cell cycle state proportions
+in each experiment in the 10x_c14agg collection. Heatmaps are generated
+for the full dataset and a 500 cell random sample. The original data is at
+
+`mnt/oncogxA/Projects/CPTRES/RNAExpression/10x/aggregates/10x_c14agg/outs/filtered_gene_bc_matrices_mex/GRCh38/`
+
+### Load Libraries
+
+```{r results="hide"}
+library(grid)
+library(plyr)
+library(dplyr)
+library(GSA)
+library(liger)
+library(matrixStats)
+library(parallel)
+library(pheatmap)
+library(Seurat)
+library(stringr)
+library(reshape2)
+```
+
+### Load and Scale/Normalize Seurat Data
+
+```{r results="hide"}
+scdata <- Read10X(data.dir="../10x_c14agg_500/")
+sc <- CreateSeuratObject(raw.data=scdata, min.cells=3, min.genes=3, project="10X_CPTRES")
+sc <- NormalizeData(object=sc, normalization.method="LogNormalize", scale.factor=10000)
+sc <- ScaleData(object=sc)
+```
+
+### Cell Cycle Scoring
+
+```{r results="hide"}
+cc.genes <- readLines(con="../satija_cell_cycle/regev_lab_cell_cycle_genes.txt")
+s.genes <- cc.genes[1:43]
+g2m.genes <- cc.genes[44:97]
+sc <- CellCycleScoring(object=sc, s.genes=s.genes, g2m.genes=g2m.genes, set.ident=T)
+```
+
+### Compile Experiment And Cell Phase
+
+```{r}
+exp.names <- c("r14_10u", "s02", "r14_15u_E", "s03", "r14_5u",
+               "r14_15u_L", "caov3", "parent")
+names(exp.names) <- 1:8
+
+get.pop.name <- function(bc) {
+  exp.names[as.numeric(strsplit(bc, "-")[[1]][2])]
+}
+
+cells.phases <- data.frame(
+  phase = sc@meta.data$Phase,
+  experiment = sapply(sc@cell.names, get.pop.name),
+  stringsAsFactors=F
+)
+rownames(cells.phases) <- sc@cell.names
+```
+
+### Convert `cells.phases` Into A Phase x Experiment Matrix
+
+```{r}
+phase.count <- ddply(cells.phases, .(cells.phases$phase, cells.phases$experiment), nrow)
+names(phase.count) <- c("phase", "experiment", "count")
+phase.count.mat <- acast(phase.count, phase~experiment, value.var="count")
+phase.count.mat <- phase.count.mat/colSums(phase.count.mat)[col(phase.count.mat)]
+```
+
+### Build Heatmap Of Normalized Matrix
+
+```{r}
+ph.500 <- pheatmap(phase.count.mat, cluster_rows=F, cluster_cols=T, 
+                   show_rowname=T, show_colnames=T, silent=T)
+```
+
+### Plot Heatmap
+
+```{r}
+plot(ph.500$gtable)
+```
+
+### Redo with all cells
+
+```{r results="hide"}
+scdata <- Read10X(data.dir="../10x_c14agg/")
+sc <- CreateSeuratObject(raw.data=scdata, min.cells=3, min.genes=3, project="10X_CPTRES")
+sc <- NormalizeData(object=sc, normalization.method="LogNormalize", scale.factor=10000)
+sc <- ScaleData(object=sc)
+sc <- CellCycleScoring(object=sc, s.genes=s.genes, g2m.genes=g2m.genes, set.ident=T)
+cells.phases <- data.frame(
+  phase = sc@meta.data$Phase,
+  experiment = sapply(sc@cell.names, get.pop.name),
+  stringsAsFactors=F
+)
+rownames(cells.phases) <- sc@cell.names
+phase.count <- ddply(cells.phases, .(cells.phases$phase, cells.phases$experiment), nrow)
+names(phase.count) <- c("phase", "experiment", "count")
+phase.count.mat <- acast(phase.count, phase~experiment, value.var="count")
+phase.count.mat <- phase.count.mat/colSums(phase.count.mat)[col(phase.count.mat)]
+ph.full <- pheatmap(phase.count.mat, cluster_rows=F, cluster_cols=T, 
+                   show_rowname=T, show_colnames=T, silent=T)
+```
+
+```{r}
+plot(ph.full$gtable)
+```
+
