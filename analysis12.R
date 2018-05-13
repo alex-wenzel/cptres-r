@@ -49,7 +49,7 @@ expr.mat <- as.matrix(sc@scale.data)
 
 ## Convert to matrix preserving rows with < n% zeros
 n.zero.lim = 10
-prevalent.genes <- as.matrix(sc@scale.data[rowSums(sc@scale.data==0)<=n.zero.lim,])
+prevalent.genes <- as.matrix(sc@scale.data[rowSums(sc@data==0)<=n.zero.lim,])
 
 ## Find Seurat Clusters
 sc <- RunPCA(object=sc, pc.genes=rownames(prevalent.genes), do.print=F)
