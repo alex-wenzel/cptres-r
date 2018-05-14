@@ -101,18 +101,18 @@ plot(ph.500$gtable)
 ### Repeated With All 28K Cells
 
 ```{r results="hide"}
-#scdata <- Read10X(data.dir="../full_28k/raw28k/")
-#sc <- CreateSeuratObject(raw.data=scdata, min.cells=3, min.genes=3, project="10X_CPTRES")
-#sc <- NormalizeData(object=sc, normalization.method="LogNormalize", scale.factor=10000)
-#sc <- ScaleData(object=sc)
-#cc.genes <- readLines(con="../satija_cell_cycle/regev_lab_cell_cycle_genes.txt")
-#s.genes <- cc.genes[1:43]
-#g2m.genes <- cc.genes[44:97]
-#sc <- CellCycleScoring(object=sc, s.genes=s.genes, g2m.genes=g2m.genes, set.ident=T)
-#sc <- ScaleData(object=sc, vars.to.regress=c("S.Score", "G2M.Score"))
-#sc <- FindVariableGenes(object=sc, mean.function=ExpMean, 
-#                        dispersion.function=LogVMR, x.low.cutoff=0.0125,
-#                        x.high.cutoff=3, y.cutoff=0.5)
+scdata <- Read10X(data.dir="../full_28k/raw28k/")
+sc <- CreateSeuratObject(raw.data=scdata, min.cells=3, min.genes=3, project="10X_CPTRES")
+sc <- NormalizeData(object=sc, normalization.method="LogNormalize", scale.factor=10000)
+sc <- ScaleData(object=sc)
+cc.genes <- readLines(con="../satija_cell_cycle/regev_lab_cell_cycle_genes.txt")
+s.genes <- cc.genes[1:43]
+g2m.genes <- cc.genes[44:97]
+sc <- CellCycleScoring(object=sc, s.genes=s.genes, g2m.genes=g2m.genes, set.ident=T)
+sc <- ScaleData(object=sc, vars.to.regress=c("S.Score", "G2M.Score"))
+sc <- FindVariableGenes(object=sc, mean.function=ExpMean, 
+                        dispersion.function=LogVMR, x.low.cutoff=0.0125,
+                        x.high.cutoff=3, y.cutoff=0.5)
 sc <- RunPCA(object=sc, pc.genes=sc@var.genes, do.print=F)
 sc <- FindClusters(object=sc, reduction.type="pca", dims.use=1:10,
                    resolution=0.6, print.output=0, save.SNN=T)
