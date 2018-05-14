@@ -1,0 +1,137 @@
+---
+title: "c14_agg Seurat Clusters With Cell Cycle"
+output: html_notebook
+---
+
+This notebook builds a heatmap representing proportions of cells in each experiment
+that are in each `Seurat` cluster built with PCA. Heatmaps are generated
+first for a random 500 cell subset and this analysis is copied and condensed
+into the last two cells for the full dataset.
+
+### Load Libraries
+
+```{r results="hide"}
+library(grid)
+library(plyr)
+library(dplyr)
+library(GSA)
+library(liger)
+library(matrixStats)
+library(parallel)
+library(pheatmap)
+library(Seurat)
+library(stringr)
+library(reshape2)
+```
+
+### Load Single Cell Data, Scale And Normalize
+
+```{r results="hide"}
+scdata <- Read10X(data.dir="../10x_c14agg_500/")
+sc <- CreateSeuratObject(raw.data=scdata, min.cells=3, min.genes=3, project="10X_CPTRES")
+sc <- NormalizeData(object=sc, normalization.method="LogNormalize", scale.factor=10000)
+sc <- ScaleData(object=sc)
+```
+
+### Cell Cycle Scoring And Regression
+
+```{r results="hide"}
+cc.genes <- readLines(con="../satija_cell_cycle/regev_lab_cell_cycle_genes.txt")
+s.genes <- cc.genes[1:43]
+g2m.genes <- cc.genes[44:97]
+sc <- CellCycleScoring(object=sc, s.genes=s.genes, g2m.genes=g2m.genes, set.ident=T)
+sc <- ScaleData(object=sc, vars.to.regress=c("S.Score", "G2M.Score"))
+```
+
+### Find Seurat Variable Genes and Run PCA
+
+```{r results="hide"}
+sc <- FindVariableGenes(object=sc, mean.function=ExpMean, 
+                        dispersion.function=LogVMR, x.low.cutoff=0.0125,
+                        x.high.cutoff=3, y.cutoff=0.5)
+sc <- RunPCA(object=sc, pc.genes=sc@var.genes, do.print=F)
+sc <- FindClusters(object=sc, reduction.type="pca", dims.use=1:10,
+                   resolution=0.6, print.output=0, save.SNN=T)
+```
+
+### Function Mapping Barcode To Experiment
+
+```{r}
+exp.names <- c("r14_10u", "s02", "r14_15u_E", "s03", "r14_5u",
+               "r14_15u_L", "caov3", "parent")
+names(exp.names) <- 1:8
+get.pop.name <- function(bc) {
+  exp.names[as.numeric(strsplit(bc, "-")[[1]][2])]
+}
+```
+
+### Compile Experiment And Cluster
+
+```{r}
+exps.clusters <- data.frame(
+  experiment = sapply(sc@cell.names, get.pop.name),
+  cluster = sc@ident,
+  stringsAsFactors = F
+)
+```
+
+### Convert To Matrix
+
+```{r}
+clust.count <- ddply(exps.clusters, .(exps.clusters$cluster, exps.clusters$experiment), nrow)
+names(clust.count) <- c("cluster", "experiment", "count")
+clust.count.mat <- acast(clust.count, cluster~experiment, value.var="count", fill=0)
+clust.count.mat <- clust.count.mat/colSums(clust.count.mat)[col(clust.count.mat)]
+```
+
+### Build Heatmap Of Normalized Matrix
+
+```{r}
+ph.500 <- pheatmap(clust.count.mat, cluster_rows=F, cluster_cols=T, 
+                   show_rowname=T, show_colnames=T, silent=T)
+```
+
+### Plot Heatmap
+
+```{r}
+plot(ph.500$gtable)
+```
+
+```{r results="hide"}
+scdata <- Read10X(data.dir="../10x_c14agg/")
+sc <- CreateSeuratObject(raw.data=scdata, min.cells=3, min.genes=3, project="10X_CPTRES")
+sc <- NormalizeData(object=sc, normalization.method="LogNormalize", scale.factor=10000)
+sc <- ScaleData(object=sc)
+cc.genes <- readLines(con="../satija_cell_cycle/regev_lab_cell_cycle_genes.txt")
+s.genes <- cc.genes[1:43]
+g2m.genes <- cc.genes[44:97]
+sc <- CellCycleScoring(object=sc, s.genes=s.genes, g2m.genes=g2m.genes, set.ident=T)
+sc <- ScaleData(object=sc, vars.to.regress=c("S.Score", "G2M.Score"))
+sc <- FindVariableGenes(object=sc, mean.function=ExpMean, 
+                        dispersion.function=LogVMR, x.low.cutoff=0.0125,
+                        x.high.cutoff=3, y.cutoff=0.5)
+sc <- RunPCA(object=sc, pc.genes=sc@var.genes, do.print=F)
+sc <- FindClusters(object=sc, reduction.type="pca", dims.use=1:10,
+                   resolution=0.6, print.output=0, save.SNN=T)
+exp.names <- c("r14_10u", "s02", "r14_15u_E", "s03", "r14_5u",
+               "r14_15u_L", "caov3", "parent")
+names(exp.names) <- 1:8
+get.pop.name <- function(bc) {
+  exp.names[as.numeric(strsplit(bc, "-")[[1]][2])]
+}
+exps.clusters <- data.frame(
+  experiment = sapply(sc@cell.names, get.pop.name),
+  cluster = sc@ident,
+  stringsAsFactors = F
+)
+clust.count <- ddply(exps.clusters, .(exps.clusters$cluster, exps.clusters$experiment), nrow)
+names(clust.count) <- c("cluster", "experiment", "count")
+clust.count.mat <- acast(clust.count, cluster~experiment, value.var="count", fill=0)
+clust.count.mat <- clust.count.mat/colSums(clust.count.mat)[col(clust.count.mat)]
+p.full <- pheatmap(clust.count.mat, cluster_rows=F, cluster_cols=T, 
+                   show_rowname=T, show_colnames=T, silent=T)
+```
+
+```{r}
+plot(p.full$gtable)
+```
