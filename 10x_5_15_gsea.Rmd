@@ -1,0 +1,141 @@
+---
+title: "10x_5_15 GSEA"
+output: html_notebook
+---
+
+This notebook uses the `liger` package to perform GSEA on the original clustering using
+the [Hallmarks](http://software.broadinstitute.org/gsea/msigdb/download_file.jsp?filePath=/resources/msigdb/6.1/h.all.v6.1.symbols.gmt) and [Reactome](http://software.broadinstitute.org/gsea/msigdb/download_file.jsp?filePath=/resources/msigdb/6.1/c2.cp.reactome.v6.1.symbols.gmt) gene sets
+
+### Load Libraries
+
+```{r results="hide"}
+library(grid)
+library(plyr)
+library(dplyr)
+library(GSA)
+library(liger)
+library(matrixStats)
+library(parallel)
+library(pheatmap)
+library(Seurat)
+library(stringr)
+library(reshape2)
+library(fgsea)
+```
+
+### Preprocess With Seurat
+
+Build a `Seurat` object, normalize, scale, regress cell cycle signal
+
+```{r results="hide"}
+scdata <- Read10X(data.dir="../full_28k/raw28k/")
+sc <- CreateSeuratObject(raw.data=scdata, min.cells=3, min.genes=3, project="10X_CPTRES")
+sc <- NormalizeData(object=sc, normalization.method="LogNormalize", scale.factor=10000)
+sc <- ScaleData(object=sc)
+cc.genes <- readLines(con="../satija_cell_cycle/regev_lab_cell_cycle_genes.txt")
+s.genes <- cc.genes[1:43]
+g2m.genes <- cc.genes[44:97]
+sc <- CellCycleScoring(object=sc, s.genes=s.genes, g2m.genes=g2m.genes, set.ident=T)
+sc <- ScaleData(object=sc, vars.to.regress=c("S.Score", "G2M.Score"))
+```
+
+### Function Mapping Cluster Number To Collapsed Cluster Name
+
+```{r}
+cluster.names <- c("Large", "Small-1", "Medium-1", "Large", "Small-3",
+                   "Large", "Medium-1", "Medium-2", "Small-2", "Medium-2",
+                   "Small-4", "Medium-1", "Small-2", "Medium-2")
+names(cluster.names) <- 1:14
+get.cluster.name <- function(num) {
+  cluster.names[num]
+}
+```
+
+### Load Original Clusters
+
+Load the original clusters and assign to `sc@ident`
+
+```{r results="hide"}
+full.14.clusters <- read.csv("../full_28k/orig_graphclust_14/clusters.csv")$Cluster
+full.14.clusters <- as.factor(sapply(full.14.clusters, get.cluster.name))
+attributes(full.14.clusters)$names <- sc@cell.names
+sc@ident <- full.14.clusters
+```
+
+### Find Differentially Expressed Genes
+
+The first cell below calls `Seurat::FindAllMarkers` and saves the resulting dataframe
+to a `.tsv`. The second cell loads the file from the `.tsv`. Due to long running time,
+only run the first cell if it hasn't yet been run or if the parameters or input data set
+change.
+
+```{r results="hide"}
+sc.markers <- FindAllMarkers(object=sc, min.pct=0.25, thresh.use=0.25)
+write.table(sc.markers, "../10x_5_15_gsea_markers.tsv", quote=FALSE, row.names=FALSE, sep='\t')
+```
+
+```{r results="hide"}
+sc.markers <- read.csv("../10x_5_15_gsea_markers.tsv", sep='\t', stringsAsFactors = F)
+```
+
+### Heatmap Of Top 10 Genes In Each Cluster
+
+```{r fig.height=11, fig.width=12}
+top.10.genes <- sc.markers %>% group_by(cluster) %>% top_n(10, avg_logFC)
+DoHeatmap(object=sc, genes.use=top.10.genes$gene, slim.col.label=T, remove.key=T)
+```
+
+### Load Gene Sets
+
+```{r results="hide"}
+hallmarks.full <- GSA.read.gmt("../msigdb/h.all.v6.1.symbols.gmt")
+hallmarks <- hallmarks.full$genesets
+names(hallmarks) <- hallmarks.full$geneset.names
+
+reactome.full <- GSA.read.gmt("../msigdb/c2.cp.reactome.v6.1.symbols.gmt")
+reactome <- reactome.full$genesets
+names(reactome) <- reactome.full$geneset.names
+```
+
+### GSEA Wrapper
+
+```{r}
+run.fgsea <- function(cluster.name, gene.set) {
+  cluster.markers <- sc.markers[sc.markers$cluster==cluster.name,]
+  cluster.stats <- cluster.markers$avg_logFC
+  names(cluster.stats) <- cluster.markers$gene
+  res <- fgsea(pathways=gene.set, stats=cluster.stats, nperm=10000, minSize=10)
+  top.pathways.up <- res[ES>0,][head(order(pval), n=10), pathway]
+  top.pathways.dn <- res[ES<0,][head(order(pval), n=10), pathway]
+  top.pathways <- c(top.pathways.up, rev(top.pathways.dn))
+  plotGseaTable(gene.set[top.pathways], cluster.stats, res, gseaParam=0.5)
+  return(res)
+}
+```
+
+
+### Run GSEA For Each Cluster
+
+```{r fig.width=20}
+large.hmrks <- run.fgsea("Large", hallmarks)
+large.react <- run.fgsea("Large", reactome)
+
+medium1.hmrks <- run.fgsea("Medium-1", hallmarks)
+medium1.react <- run.fgsea("Medium-1", reactome)
+
+medium2.hmrks <- run.fgsea("Medium-2", hallmarks)
+medium2.react <- run.fgsea("Medium-2", reactome)
+
+small1.hmrks <- run.fgsea("Small-1", hallmarks)
+small1.react <- run.fgsea("Small-1", reactome)
+
+small2.hmrks <- run.fgsea("Small-2", hallmarks)
+small2.react <- run.fgsea("Small-2", reactome)
+
+small3.hmrks <- run.fgsea("Small-3", hallmarks)
+small3.react <- run.fgsea("Small-3", reactome)
+
+small4.hmrks <- run.fgsea("Small-4", hallmarks)
+small4.react <- run.fgsea("Small-4", reactome)
+```
+
