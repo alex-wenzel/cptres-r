@@ -109,6 +109,19 @@ scdata <- Read10X(data.dir="../full_28k/raw28k/")
 sc <- CreateSeuratObject(raw.data=scdata, min.cells=3, min.genes=3, project="10X_CPTRES")
 sc <- NormalizeData(object=sc, normalization.method="LogNormalize", scale.factor=10000)
 sc <- ScaleData(object=sc)
+exp.names <- c("r06_5", "r18_5", "s02", "s03", "r14_5", "r06_15",
+               "r16_15", "r14_15", "r16_5", "caov3", "r18_15", "parent")
+get.pop.name <- function(bc) {
+  exp.names[as.numeric(strsplit(bc, "-")[[1]][2])]
+}
+cluster.names <- c("Large", "Small-1", "Medium-1", "Large", "Small-3",
+                   "Large", "Medium-1", "Medium-2", "Small-2", "Medium-2",
+                   "Small-4", "Medium-1", "Small-2", "Medium-2")
+names(cluster.names) <- 1:14
+get.cluster.name <- function(num) {
+  cluster.names[num]
+}
+full.14.clusters <- read.csv("../full_28k/orig_graphclust_14/clusters.csv")
 exps.clusters <- data.frame(
   experiment = sapply(sc@cell.names, get.pop.name),
   cluster = sapply(full.14.clusters$Cluster, get.cluster.name),
@@ -119,7 +132,7 @@ clust.count <- ddply(exps.clusters, .(exps.clusters$cluster, exps.clusters$exper
 names(clust.count) <- c("cluster", "experiment", "count")
 clust.count.mat <- acast(clust.count, cluster~experiment, value.var="count", fill=0)
 clust.count.mat <- clust.count.mat/colSums(clust.count.mat)[col(clust.count.mat)]
-ph.28k <- pheatmap(clust.count.mat, cluster_rows=F, cluster_cols=F, 
+ph.28k <- pheatmap(clust.count.mat, cluster_rows=F, cluster_cols=T, 
                    show_rowname=T, show_colnames=T, silent=T)
 ```
 
