@@ -3,7 +3,7 @@ title: "10x_5_15 GSEA"
 output: html_notebook
 ---
 
-This notebook uses the `liger` package to perform GSEA on the original clustering using
+This notebook uses the `fgsea` package to perform GSEA on the original clustering using
 the [Hallmarks](http://software.broadinstitute.org/gsea/msigdb/download_file.jsp?filePath=/resources/msigdb/6.1/h.all.v6.1.symbols.gmt) and [Reactome](http://software.broadinstitute.org/gsea/msigdb/download_file.jsp?filePath=/resources/msigdb/6.1/c2.cp.reactome.v6.1.symbols.gmt) gene sets
 
 ### Load Libraries
