@@ -152,3 +152,28 @@ scm.ifng <- sc.markers[sc.markers$gene %in% interferon.gamma.genes,]
 table(scm.ifng$cluster)
 ```
 
+### Redo GSEA
+
+Assume that the issue was too stringent parameters to `Seurat::FindAllMarkers`. Try GSEA again
+with the less stringent `sc.markers.comp`
+
+GSEA wrapper/driver from [`10x_5_15_gsea.Rmd`](https://github.com/alex-wenzel/cptres-r/blob/master/10x_5_15_gsea.Rmd)
+
+```{r}
+run.fgsea <- function(cluster.name, gene.set) {
+  cluster.markers <- sc.markers.comp[sc.markers.comp$cluster==cluster.name,]
+  cluster.stats <- cluster.markers$avg_logFC
+  names(cluster.stats) <- cluster.markers$gene
+  res <- fgsea(pathways=gene.set, stats=cluster.stats, nperm=10000, minSize=10)
+  top.pathways.up <- res[ES>0,][head(order(pval), n=10), pathway]
+  top.pathways.dn <- res[ES<0,][head(order(pval), n=10), pathway]
+  top.pathways <- c(top.pathways.up, rev(top.pathways.dn))
+  plotGseaTable(gene.set[top.pathways], cluster.stats, res, gseaParam=0.5)
+  return(res)
+}
+```
+
+```{r fig.width=20}
+small1.hmrks <- run.fgsea("Small-1", hallmarks)
+```
+
