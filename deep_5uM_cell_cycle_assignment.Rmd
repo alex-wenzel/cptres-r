@@ -1,0 +1,154 @@
+---
+title: "deep_5uM Cell Cycle Assignment"
+output: html_notebook
+---
+
+This notebook assigns cell cycle phases to the deep sequencing experiment of the sensitive and
+step 5 clones. The path to this data on oncogxA is
+
+`/mnt/oncogxA/Projects/CPTRES/RNAExpression/10x/aggregates/deep_5uM`
+
+This notebook builds cell cycle heatmaps for experiment ID, 10X graph-based clustering, 
+and Seurat variable genes clustering.
+
+### Libraries
+
+```{r results="hide"}
+library(grid)
+library(plyr)
+library(dplyr)
+library(GSA)
+library(liger)
+library(matrixStats)
+library(parallel)
+library(pheatmap)
+library(Seurat)
+library(stringr)
+library(reshape2)
+library(fgsea)
+```
+
+### Load deep_5uM Data
+
+Load the data with Seurat
+
+```{r results="hide"}
+scdata <- Read10X(data.dir="../deep_5uM/")
+sc <- CreateSeuratObject(raw.data=scdata, min.cells=3, min.genes=3, project="deep_5uM")
+sc <- NormalizeData(object=sc, normalization.method="LogNormalize", scale.factor=10000)
+sc <- ScaleData(object=sc)
+```
+
+### Assign Cell Cycle Phases
+
+```{r}
+cc.genes <- readLines(con="../satija_cell_cycle/regev_lab_cell_cycle_genes.txt")
+s.genes <- cc.genes[1:43]
+g2m.genes <- cc.genes[44:97]
+sc <- CellCycleScoring(object=sc, s.genes=s.genes, g2m.genes=g2m.genes, set.ident=T)
+```
+
+### Compile Cell Cycle And Experiment
+
+```{r}
+exp.names <- c("S02", "S03", "caov3", "parent", "R06_5uM", "R14_5uM",
+               "R16_5uM", "R18_5uM")
+names(exp.names) <- 1:8
+get.pop.name <- function(bc) {
+  exp.names[as.numeric(strsplit(bc, "-")[[1]][2])]
+}
+cells.phases <- data.frame(
+  phase = sc@meta.data$Phase,
+  experiment = sapply(sc@cell.names, get.pop.name),
+  stringsAsFactors=F
+)
+rownames(cells.phases) <- sc@cell.names
+```
+
+### Convert `cells.phases` Into A Phase x Experiment Matrix
+
+```{r}
+phase.count <- ddply(cells.phases, .(cells.phases$phase, cells.phases$experiment), nrow)
+names(phase.count) <- c("phase", "experiment", "count")
+phase.count.mat <- acast(phase.count, phase~experiment, value.var="count")
+phase.count.mat <- phase.count.mat/colSums(phase.count.mat)[col(phase.count.mat)]
+```
+
+### Build Heatmap
+
+```{r}
+ph <- pheatmap(phase.count.mat, cluster_rows=F, cluster_cols=T, 
+                   show_rowname=T, show_colnames=T, silent=T)
+```
+
+```{r}
+plot(ph$gtable)
+```
+
+### Load 10X Clusters
+
+```{r results="hide"}
+clusters <- read.csv("../deep_5uM/graphclust/clusters.csv")
+```
+
+### Compile Experiment And Cluster
+
+```{r}
+exps.clusters <- data.frame(
+  experiment = sapply(sc@cell.names, get.pop.name),
+  cluster = clusters$Cluster,
+  stringsAsFactors=F
+)
+rownames(exps.clusters) <- sc@cell.names
+```
+
+### Build Experiment by Cluster Matrix
+
+```{r}
+clust.count <- ddply(exps.clusters, .(exps.clusters$cluster, exps.clusters$experiment), nrow)
+names(clust.count) <- c("cluster", "experiment", "count")
+clust.count.mat <- acast(clust.count, cluster~experiment, value.var="count", fill=0)
+clust.count.mat <- clust.count.mat/colSums(clust.count.mat)[col(clust.count.mat)]
+```
+
+### Build Heatmap
+
+```{r}
+ph <- pheatmap(clust.count.mat, cluster_rows=F, cluster_cols=T, 
+                   show_rowname=T, show_colnames=T, silent=T)
+```
+
+```{r}
+plot(ph$gtable)
+```
+
+### Compile Cluster and Phase
+
+```{r}
+exps.clusters <- data.frame(
+  phase = sc@meta.data$Phase,
+  cluster = clusters$Cluster,
+  stringsAsFactors=F
+)
+rownames(exps.clusters) <- sc@cell.names
+```
+
+### Build Phase by Cluster Matrix
+
+```{r}
+clust.count <- ddply(exps.clusters, .(exps.clusters$phase, exps.clusters$cluster), nrow)
+names(clust.count) <- c("phase", "cluster", "count")
+clust.count.mat <- acast(clust.count, phase~cluster, value.var="count", fill=0)
+clust.count.mat <- clust.count.mat/colSums(clust.count.mat)[col(clust.count.mat)]
+```
+
+### Build Heatmap
+
+```{r}
+ph <- pheatmap(clust.count.mat, cluster_rows=F, cluster_cols=T, 
+                   show_rowname=T, show_colnames=T, silent=T)
+```
+
+```{r}
+plot(ph$gtable)
+```
