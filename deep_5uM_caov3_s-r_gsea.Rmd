@@ -1,0 +1,147 @@
+---
+title: "deep_5uM CAOV3 Sensitive/Resistant GSEA"
+output: html_notebook
+---
+
+This notebook classifies the CAOV3 cells into sensitive (graphclust 1-3) and resistant
+(graphclust 4-9) states and performs GSEA based on the `Seurat`-identified variable
+genes between these clusters.
+
+### Libraries
+
+```{r results="hide"}
+library(grid)
+library(plyr)
+library(dplyr)
+library(GSA)
+library(liger)
+library(matrixStats)
+library(parallel)
+library(pheatmap)
+library(Seurat)
+library(stringr)
+library(reshape2)
+library(fgsea)
+```
+
+### Load Seurat Data
+
+Load, normalize, regress cell cycle signature
+
+```{r results="hide"}
+scdata <- Read10X(data.dir="../deep_5uM/")
+sc <- CreateSeuratObject(raw.data=scdata, min.cells=3, min.genes=3, project="deep_5uM")
+sc <- NormalizeData(object=sc, normalization.method="LogNormalize", scale.factor=10000)
+sc <- ScaleData(object=sc)
+cc.genes <- readLines(con="../satija_cell_cycle/regev_lab_cell_cycle_genes.txt")
+s.genes <- cc.genes[1:43]
+g2m.genes <- cc.genes[44:97]
+sc <- CellCycleScoring(object=sc, s.genes=s.genes, g2m.genes=g2m.genes, set.ident=T)
+sc <- ScaleData(object=sc, vars.to.regress=c("S.Score", "G2M.Score"))
+```
+
+### Assign Experiment Name
+
+```{r}
+exp.names <- c("S02", "S03", "caov3", "parent", "R06_5uM", "R14_5uM",
+               "R16_5uM", "R18_5uM")
+names(exp.names) <- 1:8
+get.pop.name <- function(bc) {
+  exp.names[as.numeric(strsplit(bc, "-")[[1]][2])]
+}
+
+cells.exp <- data.frame(
+  experiment = sapply(sc@cell.names, get.pop.name),
+  cluster = read.csv("../deep_5uM/graphclust/clusters.csv")$Cluster,
+  stringsAsFactors = F
+)
+rownames(cells.exp) <- sc@cell.names
+```
+
+### Assign Sensitive or Resistant
+
+```{r}
+get.state <- function(experiment, cluster) {
+  if (experiment == "caov3")
+  {
+    if (cluster <= 3) {
+      "sensitive"
+    } else {
+      "resistant"
+    }
+  } else {
+    "irrelevant"
+  }
+}
+
+cells.exp$state <- mapply(get.state, cells.exp$experiment, cells.exp$cluster)
+new.ident <- as.factor(cells.exp$state)
+attributes(new.ident)$names <- sc@cell.names
+sc@ident <- new.ident
+```
+
+### Find Differentially Expressed Genes
+
+```{r}
+resistant.markers <- FindMarkers(object=sc, ident.1="sensitive", ident.2="resistant",
+                                 min.pct=0, thresh.use=0)
+resistant.markers$gene <- rownames(resistant.markers)
+```
+
+### Sensitive/Resistant Markers Heatmap
+
+```{r fig.height=9, fig.width=13}
+top.25.genes <- resistant.markers %>% top_n(25, avg_logFC)
+low.25.genes <- resistant.markers %>% top_n(25, -avg_logFC)
+DoHeatmap(object=sc, genes.use=append(top.50.genes$gene, low.25.genes$gene), 
+          slim.col.label=T, remove.key=T, use.scaled=T,
+          cells.use=rownames(cells.exp[cells.exp$experiment=="caov3",]))
+```
+
+### Load Gene Sets
+
+```{r results="hide"}
+hallmarks.full <- GSA.read.gmt("../msigdb/h.all.v6.1.symbols.gmt")
+hallmarks <- hallmarks.full$genesets
+names(hallmarks) <- hallmarks.full$geneset.names
+
+reactome.full <- GSA.read.gmt("../msigdb/c2.cp.reactome.v6.1.symbols.gmt")
+reactome <- reactome.full$genesets
+names(reactome) <- reactome.full$geneset.names
+```
+
+### GSEA Wrapper
+
+```{r}
+run.fgsea <- function(cluster.name, gene.set) {
+  cluster.markers <- sc.markers[sc.markers$cluster==cluster.name,]
+  cluster.stats <- cluster.markers$avg_logFC
+  names(cluster.stats) <- cluster.markers$gene
+  res <- fgsea(pathways=gene.set, stats=cluster.stats, nperm=10000, minSize=10)
+  top.pathways.up <- res[ES>0,][head(order(pval), n=10), pathway]
+  top.pathways.dn <- res[ES<0,][head(order(pval), n=10), pathway]
+  top.pathways <- c(top.pathways.up, rev(top.pathways.dn))
+  plotGseaTable(gene.set[top.pathways], cluster.stats, res, gseaParam=0.5)
+  return(res)
+}
+```
+
+### GSEA
+
+```{r fig.width=20, fig.height=10}
+resistant.stats <- resistant.markers$avg_logFC
+names(resistant.stats) <- resistant.markers$gene
+
+hmrks.res <- fgsea(pathways=hallmarks, stats=resistant.stats, nperm=10000, minSize=10)
+top.pathways.up <- hmrks.res[ES>0,][head(order(pval), n=10), pathway]
+top.pathways.dn <- hmrks.res[ES<0,][head(order(pval), n=10), pathway]
+top.pathways <- c(top.pathways.up, rev(top.pathways.dn))
+plotGseaTable(hallmarks[top.pathways], resistant.stats, hmrks.res, gseaParam=0.5)
+
+react.res <- fgsea(pathways=reactome, stats=resistant.stats, nperm=10000, minSize=10)
+top.pathways.up <- react.res[ES>0,][head(order(pval), n=10), pathway]
+top.pathways.dn <- react.res[ES<0,][head(order(pval), n=10), pathway]
+top.pathways <- c(top.pathways.up, rev(top.pathways.dn))
+plotGseaTable(reactome[top.pathways], resistant.stats, react.res, gseaParam=0.5)
+```
+
