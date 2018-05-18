@@ -1,0 +1,264 @@
+---
+title: "deep_5uM Correlation/Clustering"
+output: html_notebook
+---
+
+Original versions of this notebook tried various methods to create a cell by cell Spearman 
+correlation matrix with the entire `deep_5uM` dataset without success mostly due to technical issues
+of memory and processing time. Instead, 3 500-cell random subsets have been created from the original
+dataset. Cell by cell correlation matrices are calculated separately and averaged for each.
+
+This script used to generate random subsets of a `10X` matrix/barcodes/genes dataset is
+[`subset_10x.R`](https://github.com/alex-wenzel/cptres-r/blob/master/subset_10x.R)
+
+### Libraries
+
+```{r results="hide"}
+library(grid)
+library(plyr)
+library(dplyr)
+library(GSA)
+library(liger)
+library(matrixStats)
+library(parallel)
+library(pheatmap)
+library(Seurat)
+library(stringr)
+library(reshape2)
+library(fgsea)
+```
+
+### Seurat Loading Function
+
+Function to load, normalize, scale, and regress an input matrix by
+cell cycle regression signal
+
+```{r}
+load.seurat <- function(spath) {
+  scdata <- Read10X(data.dir=spath)
+  sc <- CreateSeuratObject(raw.data=scdata, min.cells=3, min.genes=3, project="deep_5uM")
+  sc <- NormalizeData(object=sc, normalization.method="LogNormalize", scale.factor=10000)
+  sc <- ScaleData(object=sc)
+  cc.genes <- readLines(con="../satija_cell_cycle/regev_lab_cell_cycle_genes.txt")
+  s.genes <- cc.genes[1:43]
+  g2m.genes <- cc.genes[44:97]
+  sc <- CellCycleScoring(object=sc, s.genes=s.genes, g2m.genes=g2m.genes, set.ident=T)
+  sc <- ScaleData(object=sc, vars.to.regress=c("S.Score", "G2M.Score"))
+  return(sc)
+}
+```
+
+### Load `deep_5uM` Subsets
+
+```{r results="hide"}
+sc.1 <- load.seurat("../deep_5uM/subset_500_1/")
+sc.2 <- load.seurat("../deep_5uM/subset_500_2/")
+sc.3 <- load.seurat("../deep_5uM/subset_500_3/")
+```
+
+### Experiment Assignment Function
+
+```{r}
+exp.names <- c("S02", "S03", "caov3", "parent", "R06_5uM", "R14_5uM",                                                  
+               "R16_5uM", "R18_5uM")                                                                                   
+names(exp.names) <- 1:8
+get.pop.name <- function(bc) {
+  exp.names[as.numeric(strsplit(bc, "-")[[1]][2])]                                                                     
+}
+```
+
+### Get Experiment Names
+
+```{r}
+exps.1 <- sapply(sc.1@cell.names, get.pop.name)
+exps.2 <- sapply(sc.2@cell.names, get.pop.name)
+exps.3 <- sapply(sc.3@cell.names, get.pop.name)
+```
+
+### Correlation Matrices
+
+```{r}
+corr.mat.1 <- cor(sc.1@scale.data, method="spearman")
+corr.mat.2 <- cor(sc.2@scale.data, method="spearman")
+corr.mat.3 <- cor(sc.3@scale.data, method="spearman")
+```
+
+### Correlation Heatmaps
+
+```{r}
+anno.col.1 <- data.frame(
+  Experiment=factor(exps.1)
+)
+ph.1 <- pheatmap(corr.mat.1, cluster_rows=T, cluster_cols=T, 
+                 show_colnames=F, show_rownames=F, silent=T,
+                 annotation_col=anno.col.1, annotation_row=anno.col.1)
+
+anno.col.2 <- data.frame(
+  Experiment=factor(exps.2)
+)
+ph.2 <- pheatmap(corr.mat.2, cluster_rows=T, cluster_cols=T,
+                 show_colnames=F, show_rownames=F, silent=T,
+                 annotation_col=anno.col.2, annotation_row=anno.col.2)
+
+anno.col.3 <- data.frame(
+  Experiment=factor(exps.3)
+)
+ph.3 <- pheatmap(corr.mat.3, cluster_rows=T, cluster_cols=T,
+                 show_colnames=F, show_rownames=F, silent=T,
+                 annotation_col=anno.col.3, annotation_row=anno.col.3)
+```
+
+```{r fig.height=8, fig.width=8}
+plot(ph.1$gtable)
+```
+
+```{r fig.height=8, fig.width=8}
+plot(ph.2$gtable)
+```
+
+```{r fig.height=8, fig.width=8}
+plot(ph.3$gtable)
+```
+
+
+There is high variability between each of the three random cell samples in terms of
+cell-cell correlation. Identify the variable genes in each matrix, reduce each of the matrices
+to only contain those rows, and recalculate cell-cell correlation.
+
+### Find Variables Genes
+
+Use `Seurat::FindVariableGenes` to annotate each each subset.
+
+```{r results="hide"}
+sc.1 <- FindVariableGenes(object=sc.1, mean.function=ExpMean, dispersion.function=LogVMR,
+                          x.low.cutoff=0.5, x.high.cutoff=3, y.cutoff=0.5, sort.results=T,
+                          do.plot=F, display.progress=F)
+
+sc.2 <- FindVariableGenes(object=sc.2, mean.function=ExpMean, dispersion.function=LogVMR,
+                          x.low.cutoff=0.5, x.high.cutoff=3, y.cutoff=0.5, sort.results=T,
+                          do.plot=F, display.progress=F)
+
+sc.3 <- FindVariableGenes(object=sc.3, mean.function=ExpMean, dispersion.function=LogVMR,
+                          x.low.cutoff=0.5, x.high.cutoff=3, y.cutoff=0.5, sort.results=T,
+                          do.plot=F, display.progress=F)
+```
+
+### Filter For Variable Genes
+
+Filter each `scale.data` to only contain its respective most variable genes
+
+```{r}
+var.sc1.scale.data <- sc.1@scale.data[sc.1@var.genes,]
+var.sc2.scale.data <- sc.2@scale.data[sc.2@var.genes,]
+var.sc3.scale.data <- sc.3@scale.data[sc.3@var.genes,]
+```
+
+### Variable Genes Correlation Matrices
+
+```{r}
+var.corr.mat.1 <- cor(var.sc1.scale.data, method="spearman")
+var.corr.mat.2 <- cor(var.sc2.scale.data, method="spearman")
+var.corr.mat.3 <- cor(var.sc3.scale.data, method="spearman")
+```
+
+### Get Experiment Names
+
+```{r}
+var.exps.1 <- sapply(colnames(var.sc1.scale.data), get.pop.name)
+var.exps.2 <- sapply(colnames(var.sc2.scale.data), get.pop.name)
+var.exps.3 <- sapply(colnames(var.sc3.scale.data), get.pop.name)
+```
+
+### Correlation Heatmaps
+
+```{r}
+var.anno.col.1 <- data.frame(
+  Experiment=factor(var.exps.1)
+)
+var.ph.1 <- pheatmap(var.corr.mat.1, cluster_rows=T, cluster_cols=T, 
+                 show_colnames=F, show_rownames=F, silent=T,
+                 annotation_col=var.anno.col.1, annotation_row=var.anno.col.1)
+
+var.anno.col.2 <- data.frame(
+  Experiment=factor(var.exps.2)
+)
+var.ph.2 <- pheatmap(var.corr.mat.2, cluster_rows=T, cluster_cols=T,
+                 show_colnames=F, show_rownames=F, silent=T,
+                 annotation_col=var.anno.col.2, annotation_row=var.anno.col.2)
+
+var.anno.col.3 <- data.frame(
+  Experiment=factor(var.exps.3)
+)
+var.ph.3 <- pheatmap(var.corr.mat.3, cluster_rows=T, cluster_cols=T,
+                 show_colnames=F, show_rownames=F, silent=T,
+                 annotation_col=var.anno.col.3, annotation_row=var.anno.col.3)
+```
+
+```{r fig.height=8, fig.width=8}
+plot(var.ph.1$gtable)
+```
+
+```{r fig.height=8, fig.width=8}
+plot(var.ph.2$gtable)
+```
+
+```{r fig.height=8, fig.width=8}
+plot(var.ph.3$gtable)
+```
+
+### Cutree Clustering For `sc.3`
+
+```{r}
+var.anno.col.3 <- data.frame(
+  Experiment=factor(var.exps.3)
+)
+var.ph.3.cut <- pheatmap(var.corr.mat.3, cluster_rows=T, cluster_cols=T,
+                 show_colnames=F, show_rownames=F, silent=T,
+                 annotation_col=var.anno.col.3, annotation_row=var.anno.col.3,
+                 cutree_cols=7)
+```
+
+```{r fig.height=8, fig.width=8}
+plot(var.ph.3.cut$gtable)
+```
+
+### Extract Clusters
+
+Get the clusters from the `sc.3` clustering and assign them as the identity for `sc.3`
+
+```{r}
+sc.3.ph.clust <- as.factor(cutree(var.ph.3.cut$tree_col, k=7))
+attributes(sc.3.ph.clust)$names <- sc.3@cell.names
+sc.3@ident <- sc.3.ph.clust
+```
+
+### Compile Experiment And Cluster
+
+Build a dataframe of experiment and cluster and build a heatmap
+showing the proportions of experiments in each cluster.
+
+```{r}
+sc.3.exps.clusters <- data.frame(
+  experiment=sapply(sc.3@cell.names, get.pop.name),
+  cluster=sc.3@ident,
+  stringsAsFactors = F
+)
+rownames(sc.3.exps.clusters) <- sc.3@cell.names
+
+sc.3.clust.count <- ddply(sc.3.exps.clusters, .(sc.3.exps.clusters$cluster, sc.3.exps.clusters$experiment), nrow)
+names(sc.3.clust.count) <- c("cluster", "experiment", "count")
+sc.3.clust.count.mat <- acast(sc.3.clust.count, cluster~experiment, value.var="count", fill=0)
+sc.3.clust.count.mat <- sc.3.clust.count.mat/colSums(sc.3.clust.count.mat)[col(sc.3.clust.count.mat)]
+```
+
+```{r}
+sc.3.clust.exp.hm <- pheatmap(sc.3.clust.count.mat, cluster_rows=F, cluster_cols=T,
+                              show_rownames=T, show_colnames=T, silent=T)
+```
+
+```{r}
+plot(sc.3.clust.exp.hm$gtable)
+```
+
+
+
