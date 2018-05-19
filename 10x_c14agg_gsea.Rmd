@@ -1,0 +1,162 @@
+---
+title: "10x_c14agg GSEA"
+output: html_notebook
+---
+
+Because success was limited in achieving consensus results with building correlation matrices with
+500 cell subsets, this notebook reverts to a pure `Seurat` variable-genes-based clustering to identify
+markers for input to GSEA
+
+### Libraries
+
+```{r results="hide"}
+library(grid)
+library(plyr)
+library(dplyr)
+library(GSA)
+library(liger)
+library(matrixStats)
+library(parallel)
+library(pheatmap)
+library(Seurat)
+library(stringr)
+library(reshape2)
+library(fgsea)
+```
+
+### Load Seurat
+
+```{r}
+scdata <- Read10X(data.dir="../10x_c14agg/")
+sc <- CreateSeuratObject(raw.data=scdata, min.cells=3, min.genes=3, project="10x_c14agg")
+sc <- NormalizeData(object=sc, normalization.method="LogNormalize", scale.factor=10000)
+sc <- ScaleData(object=sc)
+cc.genes <- readLines(con="../satija_cell_cycle/regev_lab_cell_cycle_genes.txt")
+s.genes <- cc.genes[1:43]
+g2m.genes <- cc.genes[44:97]
+sc <- CellCycleScoring(object=sc, s.genes=s.genes, g2m.genes=g2m.genes, set.ident=T)
+sc <- ScaleData(object=sc, vars.to.regress=c("S.Score", "G2M.Score"))
+```
+
+### Find Seurat Variable Genes and Run PCA
+
+```{r results="hide"}
+sc <- FindVariableGenes(object=sc, mean.function=ExpMean, 
+                        dispersion.function=LogVMR, x.low.cutoff=0.0125,
+                        x.high.cutoff=3, y.cutoff=0.5, do.plot=F)
+sc <- RunPCA(object=sc, pc.genes=sc@var.genes, do.print=F)
+sc <- FindClusters(object=sc, reduction.type="pca", dims.use=1:10,
+                   resolution=0.6, print.output=0, save.SNN=T)
+```
+
+### Compile Experiment and Seurat Cluster
+
+This cell produces a heatmap to analyze the how Seurat clustering performs to separate
+the experiments.
+
+```{r}
+exp.names <- c("r14_10u", "s02", "r14_15u_E", "s03", "r14_5u",
+               "r14_15u_L", "caov3", "parent")
+names(exp.names) <- 1:8
+
+get.pop.name <- function(bc) {
+  exp.names[as.numeric(strsplit(bc, "-")[[1]][2])]
+}
+
+exps.clusts <- data.frame(
+  experiment=sapply(sc@cell.names, get.pop.name),
+  cluster=as.character(sc@ident),
+  stringsAsFactors=F
+)
+rownames(exps.clusts) <- sc@cell.names
+
+clust.count <- ddply(exps.clusts, .(exps.clusts$cluster, exps.clusts$experiment), nrow)
+names(clust.count) <- c("cluster", "experiment", "count")
+clust.count.mat <- acast(clust.count, cluster~experiment, value.var="count", fill=0)
+clust.count.mat <- clust.count.mat/colSums(clust.count.mat)[col(clust.count.mat)]
+
+exps.clusts.hm <- pheatmap(clust.count.mat, cluster_rows=F, cluster_cols=T, 
+                   show_rownames=T, show_colnames=T, silent=T)
+```
+
+```{r}
+plot(exps.clusts.hm$gtable)
+```
+
+
+### Find DEG Markers
+
+```{r}
+sc.markers <- FindAllMarkers(object=sc, min.pct=0, thresh.use=0)
+```
+
+### Heatmap Of Top 10 Genes In Each Cluster
+
+```{r fig.height=11, fig.width=12}
+top.10.genes <- sc.markers %>% group_by(cluster) %>% top_n(10, avg_logFC)
+DoHeatmap(object=sc, genes.use=top.10.genes$gene, slim.col.label=T, remove.key=T)
+```
+
+### Load Gene Sets
+
+```{r results="hide"}
+hallmarks.full <- GSA.read.gmt("../msigdb/h.all.v6.1.symbols.gmt")
+hallmarks <- hallmarks.full$genesets
+names(hallmarks) <- hallmarks.full$geneset.names
+
+reactome.full <- GSA.read.gmt("../msigdb/c2.cp.reactome.v6.1.symbols.gmt")
+reactome <- reactome.full$genesets
+names(reactome) <- reactome.full$geneset.names
+```
+
+### GSEA Wrapper
+
+```{r}
+run.fgsea <- function(cluster.name, gene.set) {
+  cluster.markers <- sc.markers[sc.markers$cluster==cluster.name,]
+  cluster.stats <- cluster.markers$avg_logFC
+  names(cluster.stats) <- cluster.markers$gene
+  res <- fgsea(pathways=gene.set, stats=cluster.stats, nperm=10000, minSize=10)
+  #top.pathways.up <- res[ES>0,][head(order(pval), n=10), pathway]
+  #top.pathways.dn <- res[ES<0,][head(order(pval), n=10), pathway]
+  #top.pathways <- c(top.pathways.up, rev(top.pathways.dn))
+  #plotGseaTable(gene.set[top.pathways], cluster.stats, res, gseaParam=0.5)
+  res <- res[res$padj<0.05,]
+  res$cluster <- cluster.name
+  return(res)
+}
+```
+
+### Run GSEA For Each Cluster
+
+```{r fig.width=20}
+hmrks <- run.fgsea("0", hallmarks)
+react <- run.fgsea("0", reactome)
+
+for (i in 1:8) {
+  hmrks <- rbind(hmrks, run.fgsea(as.character(i), hallmarks))
+}
+
+for (i in 1:8) {
+  react <- rbind(react, run.fgsea(as.character(i), reactome))
+}
+```
+
+### Process Into Matrix for Heatmap
+
+```{r}
+hmrks.mat <- acast(hmrks, pathway~cluster, value.var="NES", fill=0)
+hmrks.hm <- pheatmap(hmrks.mat, silent=T, cluster_rows=F, cluster_cols=F)
+
+react.mat <- acast(react, pathway~cluster, value.var="NES", fill=0)
+react.hm <- pheatmap(react.mat, silent=T, cluster_rows=F, cluster_cols=F)
+```
+
+```{r}
+plot(hmrks.hm$gtable)
+```
+
+```{r fig.width=15, fig.height=14}
+plot(react.hm$gtable)
+```
+
