@@ -250,9 +250,6 @@ sc.2.clust.count.mat <- sc.2.clust.count.mat/colSums(sc.2.clust.count.mat)[col(s
 
 ```{r}
 sc.2.clust.exp.hm <- pheatmap(sc.2.clust.count.mat, cluster_rows=F, cluster_cols=T,
-                              show_rownames=T, show_colnames=T, silent=T)
-```
-
-```{r}
-plot(sc.2.clust.exp.hm$gtable)
+                              show_rownames=T, show_colnames=T, silent=F,
+                              fontsize=20, background_color="black")
 ```
