@@ -112,7 +112,7 @@ names(reactome) <- reactome.full$geneset.names
 ### GSEA Wrapper
 
 ```{r}
-run.fgsea <- function(cluster.name, gene.set) {
+run.fgsea <- function(cluster.name, gene.set, pcut) {
   cluster.markers <- sc.markers[sc.markers$cluster==cluster.name,]
   cluster.stats <- cluster.markers$avg_logFC
   names(cluster.stats) <- cluster.markers$gene
@@ -121,7 +121,7 @@ run.fgsea <- function(cluster.name, gene.set) {
   #top.pathways.dn <- res[ES<0,][head(order(pval), n=10), pathway]
   #top.pathways <- c(top.pathways.up, rev(top.pathways.dn))
   #plotGseaTable(gene.set[top.pathways], cluster.stats, res, gseaParam=0.5)
-  res <- res[res$padj<0.05,]
+  res <- res[res$padj<pcut,]
   res$cluster <- cluster.name
   return(res)
 }
@@ -130,15 +130,15 @@ run.fgsea <- function(cluster.name, gene.set) {
 ### Run GSEA For Each Cluster
 
 ```{r fig.width=20}
-hmrks <- run.fgsea("0", hallmarks)
-react <- run.fgsea("0", reactome)
+hmrks <- run.fgsea("0", hallmarks, 0.05)
+react <- run.fgsea("0", reactome, 0.05)
 
 for (i in 1:8) {
-  hmrks <- rbind(hmrks, run.fgsea(as.character(i), hallmarks))
+  hmrks <- rbind(hmrks, run.fgsea(as.character(i), hallmarks, 0.05))
 }
 
 for (i in 1:8) {
-  react <- rbind(react, run.fgsea(as.character(i), reactome))
+  react <- rbind(react, run.fgsea(as.character(i), reactome, 0.05))
 }
 ```
 
