@@ -78,11 +78,8 @@ phase.count.mat <- phase.count.mat/colSums(phase.count.mat)[col(phase.count.mat)
 
 ```{r}
 ph <- pheatmap(phase.count.mat, cluster_rows=F, cluster_cols=T, 
-                   show_rowname=T, show_colnames=T, silent=T)
-```
-
-```{r}
-plot(ph$gtable)
+               show_rowname=T, show_colnames=T, silent=F,
+               fontsize=20, border_color="black")
 ```
 
 ### Load 10X Clusters
@@ -115,11 +112,8 @@ clust.count.mat <- clust.count.mat/colSums(clust.count.mat)[col(clust.count.mat)
 
 ```{r}
 ph <- pheatmap(clust.count.mat, cluster_rows=F, cluster_cols=T, 
-                   show_rowname=T, show_colnames=T, silent=T)
-```
-
-```{r}
-plot(ph$gtable)
+                   show_rowname=T, show_colnames=T, silent=F,
+                fontsize=20, border_color="black")
 ```
 
 ### Compile Cluster and Phase
@@ -146,9 +140,6 @@ clust.count.mat <- clust.count.mat/colSums(clust.count.mat)[col(clust.count.mat)
 
 ```{r}
 ph <- pheatmap(clust.count.mat, cluster_rows=F, cluster_cols=T, 
-                   show_rowname=T, show_colnames=T, silent=T)
-```
-
-```{r}
-plot(ph$gtable)
+                   show_rowname=T, show_colnames=T, silent=F,
+               fontsize=20, border_color="black")
 ```
