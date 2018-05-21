@@ -76,13 +76,9 @@ clust.count.mat <- acast(clust.count, cluster~experiment, value.var="count", fil
 clust.count.mat <- clust.count.mat/colSums(clust.count.mat)[col(clust.count.mat)]
 
 exps.clusts.hm <- pheatmap(clust.count.mat, cluster_rows=F, cluster_cols=T, 
-                   show_rownames=T, show_colnames=T, silent=T)
+                   show_rownames=T, show_colnames=T, silent=F,
+                   fontsize=20, background_color="black")
 ```
-
-```{r}
-plot(exps.clusts.hm$gtable)
-```
-
 
 ### Find DEG Markers
 
@@ -146,17 +142,13 @@ for (i in 1:8) {
 
 ```{r}
 hmrks.mat <- acast(hmrks, pathway~cluster, value.var="NES", fill=0)
-hmrks.hm <- pheatmap(hmrks.mat, silent=T, cluster_rows=F, cluster_cols=F)
-
-react.mat <- acast(react, pathway~cluster, value.var="NES", fill=0)
-react.hm <- pheatmap(react.mat, silent=T, cluster_rows=F, cluster_cols=F)
+hmrks.hm <- pheatmap(hmrks.mat, silent=F, cluster_rows=F, cluster_cols=F,
+                     fontsize=14, border_color="black")
 ```
 
 ```{r}
-plot(hmrks.hm$gtable)
+react.mat <- acast(react, pathway~cluster, value.var="NES", fill=0)
+react.hm <- pheatmap(react.mat, silent=F, cluster_rows=F, cluster_cols=F)
 ```
 
-```{r fig.width=15, fig.height=14}
-plot(react.hm$gtable)
-```
 
