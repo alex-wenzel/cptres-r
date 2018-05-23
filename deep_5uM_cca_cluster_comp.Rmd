@@ -1,0 +1,162 @@
+---
+title: "deep_5uM Cell Cycle Assignment Cluster Comparison"
+output: html_notebook
+---
+
+This notebook performs a similar analysis to [`deep_5uM Cell Cycle Assignment`](https://github.com/alex-wenzel/cptres-r/blob/master/deep_5uM_cell_cycle_assignment.Rmd) but creates
+a more comprehensive visualization by building a heatmap that involves meta clustering from both `Seurat` and `10X` graph
+based clustering. Each experiment will take up four rows in the heatmap, one each for `Seurat` sensitive, `Seurat` resistant,
+`10X` sensitive and `10X` resistant clustering. In both `Seurat` and `10X`, clusters 1-3 are sensitive and all others
+are resistant. `Seurat` clustering is done with cell cycle regression.
+
+### Libraries
+
+```{r results="hide"}
+library(grid)
+library(plyr)
+library(dplyr)
+library(GSA)
+library(liger)
+library(matrixStats)
+library(parallel)
+library(pheatmap)
+library(Seurat)
+library(stringr)
+library(reshape2)
+library(fgsea)
+```
+
+### Load Seurat
+
+Load data, normalize, scale, apply cell cycle regression
+
+```{r}
+scdata <- Read10X(data.dir="../deep_5uM/")
+sc <- CreateSeuratObject(raw.data=scdata, min.cells=3, min.genes=3, project="deep_5uM")
+sc <- NormalizeData(object=sc, normalization.method="LogNormalize", scale.factor=10000)
+sc <- ScaleData(object=sc)
+cc.genes <- readLines(con="../satija_cell_cycle/regev_lab_cell_cycle_genes.txt")
+s.genes <- cc.genes[1:43]
+g2m.genes <- cc.genes[44:97]
+sc <- CellCycleScoring(object=sc, s.genes=s.genes, g2m.genes=g2m.genes, set.ident=T)
+sc <- ScaleData(object=sc, vars.to.regress=c("S.Score", "G2M.Score"))
+```
+
+
+### Run PCA
+
+```{r}
+sc <- FindVariableGenes(object=sc, mean.function=ExpMean, 
+                        dispersion.function=LogVMR, x.low.cutoff=0.0125,
+                        x.high.cutoff=3, y.cutoff=0.5, do.plot=F)
+sc <- RunPCA(object=sc, pc.genes=sc@var.genes, do.print=F)
+```
+
+### Find Optimal Dimension Count For Clusters
+
+```{r}
+PCElbowPlot(object=sc)
+```
+
+
+### Find PCA-based clusters
+
+```{r}
+sc <- FindClusters(object=sc, reduction.type="pca", dims.use=1:10,
+                   resolution=0.6, print.output=0, save.SNN=T)
+```
+
+
+### Map Experiment Names
+
+```{r}
+exp.names <- c("S02", "S03", "caov3", "parent", "R06_5uM", "R14_5uM",
+               "R16_5uM", "R18_5uM")
+names(exp.names) <- 1:8
+get.pop.name <- function(bc) {
+  exp.names[as.numeric(strsplit(bc, "-")[[1]][2])]
+}
+```
+
+### Visualize Seurat Clusters
+
+Visually identify sensitive and resistant clusters
+
+```{r}
+exp.names <- c("S02", "S03", "caov3", "parent", "R06_5uM", "R14_5uM",
+               "R16_5uM", "R18_5uM")
+names(exp.names) <- 1:8
+get.pop.name <- function(bc) {
+  exp.names[as.numeric(strsplit(bc, "-")[[1]][2])]
+}
+cells.clusters <- data.frame(
+  cluster = sc@ident,
+  experiment = sapply(sc@cell.names, get.pop.name),
+  stringsAsFactors=F
+)
+rownames(cells.clusters) <- sc@cell.names
+clusters.count <- ddply(cells.clusters, .(cells.clusters$cluster, cells.clusters$experiment), nrow)
+names(clusters.count) <- c("cluster", "experiment", "count")
+clusters.count.mat <- acast(clusters.count, cluster~experiment, value.var="count", fill=0)
+clusters.count.mat <- clusters.count.mat/colSums(clusters.count.mat)[col(clusters.count.mat)]
+ph <- pheatmap(clusters.count.mat, cluster_rows=F, cluster_cols=T, 
+               show_rowname=T, show_colnames=T, silent=F,
+               fontsize=20, border_color="black")
+```
+
+```{r}
+seurat.sensitive <- c(1, 3, 5, 7, 8)
+seurat.resistant <- c(0, 2, 4, 6)
+```
+
+
+### Compile metadata
+
+Build a data frame in which each row is a cell labeled with its experiment and membership in either `seurat_sensitive`,
+`seurat_resistant`, `10x_sensitive` and `10x_resistant`. 
+
+```{r}
+sc.metacluster <- data.frame(
+  experiment = sapply(sc@cell.names, get.pop.name),
+  row.names=sc@cell.names,
+  orig.cluster=as.numeric(read.csv("../deep_5uM/graphclust/clusters.csv")$Cluster),
+  seurat.cluster=as.numeric(sc@ident),
+  phase=sc@meta.data$Phase,
+  stringsAsFactors=F
+)
+
+get.meta.cluster <- function(r) {
+  seurat <- as.numeric(r[3])
+  original <- as.numeric(r[2])
+  if (seurat <= 3 && original %in% seurat.sensitive) {
+    "Srt-S_10x-S"
+  } else if (seurat <= 3 && original %in% seurat.resistant) {
+    "Srt-S_10x-R"
+  } else if (seurat > 3 && original %in% seurat.sensitive) {
+    "Srt-R_10x-S"
+  } else {
+    "Srt-R_10x-R"
+  }
+}
+
+sc.metacluster$meta.cluster <- apply(sc.metacluster, 1, get.meta.cluster)
+```
+
+### Build Cell Phase Matrix
+
+```{r}
+phase.count <- ddply(sc.metacluster, .(sc.metacluster$phase, sc.metacluster$meta.cluster), nrow)
+names(phase.count) <- c("phase", "meta.cluster", "count")
+phase.count.mat <- acast(phase.count, phase~meta.cluster, value.var="count")
+phase.count.mat
+phase.count.mat <- phase.count.mat/colSums(phase.count.mat)[col(phase.count.mat)]
+```
+
+### Build Heatmap
+
+```{r}
+ph <- pheatmap(phase.count.mat, cluster_rows=F, cluster_cols=F, 
+               show_rowname=T, show_colnames=T, silent=F,
+               fontsize=20, border_color="black")
+```
+
