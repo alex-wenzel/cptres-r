@@ -105,8 +105,8 @@ ph <- pheatmap(clusters.count.mat, cluster_rows=F, cluster_cols=T,
 ```
 
 ```{r}
-seurat.sensitive <- c(1, 3, 5, 7, 8)
-seurat.resistant <- c(0, 2, 4, 6)
+seurat.sensitive <- c(2, 4, 6, 8, 9)
+seurat.resistant <- c(1, 3, 5, 7)
 ```
 
 
@@ -128,14 +128,14 @@ sc.metacluster <- data.frame(
 get.meta.cluster <- function(r) {
   seurat <- as.numeric(r[3])
   original <- as.numeric(r[2])
-  if (seurat <= 3 && original %in% seurat.sensitive) {
-    "Srt-S_10x-S"
-  } else if (seurat <= 3 && original %in% seurat.resistant) {
-    "Srt-S_10x-R"
-  } else if (seurat > 3 && original %in% seurat.sensitive) {
-    "Srt-R_10x-S"
+  if (original <= 3 && seurat %in% seurat.sensitive) {
+    paste(r[1], "-10S-SS")
+  } else if (original <= 3 && seurat %in% seurat.resistant) {
+    paste(r[1], "-10S-SR")
+  } else if (original > 3 && seurat %in% seurat.sensitive) {
+    paste(r[1], "-10R-SS")
   } else {
-    "Srt-R_10x-R"
+    paste(r[1], "-10R-SR")
   }
 }
 
@@ -147,14 +147,14 @@ sc.metacluster$meta.cluster <- apply(sc.metacluster, 1, get.meta.cluster)
 ```{r}
 phase.count <- ddply(sc.metacluster, .(sc.metacluster$phase, sc.metacluster$meta.cluster), nrow)
 names(phase.count) <- c("phase", "meta.cluster", "count")
-phase.count.mat <- acast(phase.count, phase~meta.cluster, value.var="count")
+phase.count.mat <- acast(phase.count, meta.cluster~phase, value.var="count", fill=0)
 phase.count.mat
 phase.count.mat <- phase.count.mat/colSums(phase.count.mat)[col(phase.count.mat)]
 ```
 
 ### Build Heatmap
 
-```{r}
+```{r fig.height=10, fig.width=5}
 ph <- pheatmap(phase.count.mat, cluster_rows=F, cluster_cols=F, 
                show_rowname=T, show_colnames=T, silent=F,
                fontsize=20, border_color="black")
