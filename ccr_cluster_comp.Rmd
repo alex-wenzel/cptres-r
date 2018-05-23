@@ -9,8 +9,6 @@ populations divide into clusters.
 
 ### Libraries
 
-### Libraries
-
 ```{r results="hide"}
 library(grid)
 library(plyr)
@@ -67,7 +65,8 @@ seurat.cluster <- function(path, do.ccr, exp.names) {
   clust.count.mat <- clust.count.mat/colSums(clust.count.mat)[col(clust.count.mat)]
   
   exps.clusts.hm <- pheatmap(clust.count.mat, cluster_rows=F, cluster_cols=F, 
-                     show_rownames=T, show_colnames=T, silent=T)
+                     show_rownames=T, show_colnames=T, silent=F,
+                     fontsize=20, border_color="black")
   return(exps.clusts.hm)
 }
 ```
@@ -81,10 +80,6 @@ names(exp.names) <- 1:12
 hm.10x_5_15 <- seurat.cluster(path="../full_28k/raw28k/", do.ccr=T, exp.names=exp.names)
 ```
 
-```{r}
-plot(hm.10x_5_15$gtable)
-```
-
 ### Clustering `10x_5_15` **WITHOUT** Cell Cycle Regression
 
 ```{r}
@@ -92,10 +87,6 @@ exp.names <- c("r06_5", "r18_5", "s02", "s03", "r14_5", "r06_15",
                "r16_15", "r14_15", "r16_5", "caov3", "r18_15", "parent")
 names(exp.names) <- 1:12 
 hm.10x_5_15 <- seurat.cluster(path="../full_28k/raw28k/", do.ccr=F, exp.names=exp.names)
-```
-
-```{r}
-plot(hm.10x_5_15$gtable)
 ```
 
 ### Clustering `10x_c14agg` **WITH** Cell Cycle Regression
@@ -107,10 +98,6 @@ names(exp.names) <- 1:8
 hm.10x_c14agg <- seurat.cluster(path="../10x_c14agg/", do.ccr=T, exp.names=exp.names)
 ```
 
-```{r}
-plot(hm.10x_c14agg$gtable)
-```
-
 ### Clustering `10x_c14agg` **WITHOUT** Cell Cycle Regression
 
 ```{r}
@@ -118,10 +105,6 @@ exp.names <- c("r14_10u", "s02", "r14_15u_E", "s03", "r14_5u",
                "r14_15u_L", "caov3", "parent")
 names(exp.names) <- 1:8
 hm.10x_c14agg <- seurat.cluster(path="../10x_c14agg/", do.ccr=F, exp.names=exp.names)
-```
-
-```{r}
-plot(hm.10x_c14agg$gtable)
 ```
 
 ### Clustering `deep_5uM` **WITH** Cell Cycle Regression
@@ -133,10 +116,6 @@ names(exp.names) <- 1:8
 hm.deep_5um <- seurat.cluster(path="../deep_5uM/", do.ccr=T, exp.names=exp.names)
 ```
 
-```{r}
-plot(hm.deep_5um$gtable)
-```
-
 ### Clustering `deep_5uM` **WITHOUT** Cell Cycle Regression
 
 ```{r}
@@ -144,8 +123,4 @@ exp.names <- c("S02", "S03", "caov3", "parent", "R06_5uM", "R14_5uM",
                "R16_5uM", "R18_5uM")                                                                                   
 names(exp.names) <- 1:8
 hm.deep_5um <- seurat.cluster(path="../deep_5uM/", do.ccr=F, exp.names=exp.names)
-```
-
-```{r}
-plot(hm.deep_5um$gtable)
 ```
