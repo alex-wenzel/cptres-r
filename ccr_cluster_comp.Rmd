@@ -86,7 +86,7 @@ hm.10x_5_15 <- seurat.cluster(path="../full_28k/raw28k/", do.ccr=T, exp.names=ex
 exp.names <- c("r06_5", "r18_5", "s02", "s03", "r14_5", "r06_15",
                "r16_15", "r14_15", "r16_5", "caov3", "r18_15", "parent")
 names(exp.names) <- 1:12 
-hm.10x_5_15 <- seurat.cluster(path="../full_28k/raw28k/", do.ccr=F, exp.names=exp.names)
+hm.10x_5_15.noccr <- seurat.cluster(path="../full_28k/raw28k/", do.ccr=F, exp.names=exp.names)
 ```
 
 ### Clustering `10x_c14agg` **WITH** Cell Cycle Regression
@@ -104,7 +104,7 @@ hm.10x_c14agg <- seurat.cluster(path="../10x_c14agg/", do.ccr=T, exp.names=exp.n
 exp.names <- c("r14_10u", "s02", "r14_15u_E", "s03", "r14_5u",
                "r14_15u_L", "caov3", "parent")
 names(exp.names) <- 1:8
-hm.10x_c14agg <- seurat.cluster(path="../10x_c14agg/", do.ccr=F, exp.names=exp.names)
+hm.10x_c14agg.noccr <- seurat.cluster(path="../10x_c14agg/", do.ccr=F, exp.names=exp.names)
 ```
 
 ### Clustering `deep_5uM` **WITH** Cell Cycle Regression
@@ -122,5 +122,79 @@ hm.deep_5um <- seurat.cluster(path="../deep_5uM/", do.ccr=T, exp.names=exp.names
 exp.names <- c("S02", "S03", "caov3", "parent", "R06_5uM", "R14_5uM",                                                  
                "R16_5uM", "R18_5uM")                                                                                   
 names(exp.names) <- 1:8
-hm.deep_5um <- seurat.cluster(path="../deep_5uM/", do.ccr=F, exp.names=exp.names)
+hm.deep_5um.noccr <- seurat.cluster(path="../deep_5uM/", do.ccr=F, exp.names=exp.names)
 ```
+
+### Heatmap With/Without CCR
+
+This function takes two Seurat objects assumed to contain the same
+cells and builds a heatmap of their clusters.
+
+```{r}
+load.seurat <- function(path, do.ccr, exp.names) {
+  scdata <- Read10X(data.dir=path)
+  sc <- CreateSeuratObject(raw.data=scdata, min.cells=3, min.genes=3, project="10x_c14agg")
+  sc <- NormalizeData(object=sc, normalization.method="LogNormalize", scale.factor=10000)
+  sc <- ScaleData(object=sc)
+  if (do.ccr) {
+    cc.genes <- readLines(con="../satija_cell_cycle/regev_lab_cell_cycle_genes.txt")
+    s.genes <- cc.genes[1:43]
+    g2m.genes <- cc.genes[44:97]
+    sc <- CellCycleScoring(object=sc, s.genes=s.genes, g2m.genes=g2m.genes, set.ident=T)
+    sc <- ScaleData(object=sc, vars.to.regress=c("S.Score", "G2M.Score"))
+  }
+  sc <- FindVariableGenes(object=sc, mean.function=ExpMean, 
+                        dispersion.function=LogVMR, x.low.cutoff=0.0125,
+                        x.high.cutoff=3, y.cutoff=0.5, do.plot=F)
+  sc <- RunPCA(object=sc, pc.genes=sc@var.genes, do.print=F)
+  sc <- FindClusters(object=sc, reduction.type="pca", dims.use=1:10,
+                    resolution=0.6, print.output=0, save.SNN=T)
+  return(sc)
+}
+```
+
+
+```{r}
+seurat.clust.comp <- function(ccr, no.ccr) {
+  clusts <- data.frame(
+    ccr = paste("ccr", ccr@ident, sep=""),
+    no.ccr = paste("noccr", no.ccr@ident, sep=""),
+    row.names=ccr@cell.names,
+    stringsAsFactors = F
+  )
+  clust.count <- ddply(clusts, .(clusts$ccr, clusts$no.ccr), nrow)
+  names(clust.count) <- c("ccr", "no.ccr", "count")
+  clust.count.mat <- acast(clust.count, ccr~no.ccr, value.var="count", fill=0)
+  clust.count.mat <- clust.count.mat/colSums(clust.count.mat)[col(clust.count.mat)]
+  clusts.hm <- pheatmap(clust.count.mat, cluster_rows=T, cluster_cols=T, 
+                        show_rownames=T, show_colnames=T, silent=F,
+                        fontsize=20, border_color="black")
+}
+```
+
+```{r}
+exp.names <- c("r06_5", "r18_5", "s02", "s03", "r14_5", "r06_15",
+               "r16_15", "r14_15", "r16_5", "caov3", "r18_15", "parent")
+names(exp.names) <- 1:12 
+sc.10x.ccr <- load.seurat(path="../full_28k/raw28k/", do.ccr=T, exp.names=exp.names)
+sc.10x.noccr <- load.seurat(path="../full_28k/raw28k/", do.ccr=F, exp.names=exp.names)
+seurat.clust.comp(ccr=sc.10x.ccr, no.ccr=sc.10x.noccr)
+```
+```{r}
+exp.names <- c("r14_10u", "s02", "r14_15u_E", "s03", "r14_5u",
+               "r14_15u_L", "caov3", "parent")
+names(exp.names) <- 1:8
+sc.r14.ccr <- load.seurat(path="../10x_c14agg/", do.ccr=T, exp.names=exp.names)
+sc.r14.noccr <- load.seurat(path="../10x_c14agg/", do.ccr=F, exp.names=exp.names)
+seurat.clust.comp(ccr=sc.r14.ccr, no.ccr=sc.r14.noccr)
+```
+
+```{r}
+exp.names <- c("S02", "S03", "caov3", "parent", "R06_5uM", "R14_5uM",                                                  
+               "R16_5uM", "R18_5uM")                                                                                   
+names(exp.names) <- 1:8
+sc.5um.ccr <- load.seurat(path="../deep_5uM/", do.ccr=T, exp.names=exp.names)
+sc.5um.noccr <- load.seurat(path="../deep_5uM/", do.ccr=F, exp.names=exp.names)
+seurat.clust.comp(ccr=sc.5um.ccr, no.ccr=sc.5um.noccr)
+```
+
