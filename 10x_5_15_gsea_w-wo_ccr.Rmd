@@ -1,0 +1,162 @@
+---
+title: "10x_5_15 GSEA No CCR"
+output: html_notebook
+---
+
+This notebook performs GSEA on the `10x_5_15` cluster both with and without cell cycle regression
+and identifies differentially expressed genes by comparing the sensitive clusters to the resistant clusters
+with and without cell cycle regression.
+
+### Libraries
+
+```{r}
+library(grid)
+library(plyr)
+library(dplyr)
+library(GSA)
+library(liger)
+library(matrixStats)
+library(parallel)
+library(pheatmap)
+library(Seurat)
+library(stringr)
+library(reshape2)
+library(fgsea)
+```
+
+### Load Seurat
+
+Build two copies of the `Seurat` object, one with cell cycle regression and one without.
+
+```{r}
+scdata <- Read10X(data.dir="../full_28k/raw28k/")
+sc.noccr <- CreateSeuratObject(raw.data=scdata, min.cells=3, min.genes=3, project="10x_5_15")
+sc.noccr <- NormalizeData(object=sc.noccr, normalization.method="LogNormalize", scale.factor=10000)
+sc.noccr <- ScaleData(object=sc.noccr)
+cc.genes <- readLines(con="../satija_cell_cycle/regev_lab_cell_cycle_genes.txt")
+s.genes <- cc.genes[1:43]
+g2m.genes <- cc.genes[44:97]
+sc.ccr <- CellCycleScoring(object=sc.noccr, s.genes=s.genes, g2m.genes=g2m.genes, set.ident=T)
+sc.ccr <- ScaleData(object=sc.ccr, vars.to.regress=c("S.Score", "G2M.Score"))
+```
+
+### Cluster Cells
+Run clustering and variable gene discovery for the ccr and noccr sets
+
+```{r}
+sc.ccr <- FindVariableGenes(object=sc.ccr, mean.function=ExpMean,
+                            dispersion.function=LogVMR, x.low.cutoff=0.0125,
+                            x.high.cutoff=3, y.cutoff=0.5, do.plot=F)
+sc.ccr <- RunPCA(object=sc.ccr, pc.genes=sc.ccr@var.genes, do.print=F)
+sc.ccr <- FindClusters(object=sc.ccr, reduction.type="pca", dims.use=1:10,
+                       resolution=0.6, print.output=0, save.SNN=T)
+
+sc.noccr <- FindVariableGenes(object=sc.noccr, mean.function=ExpMean,
+                              dispersion.function=LogVMR, x.low.cutoff=0.0125,
+                              x.high.cutoff=3, y.cutoff=0.5, do.plot=F)
+sc.noccr <- RunPCA(object=sc.noccr, pc.genes=sc.noccr@var.genes, do.print=F)
+sc.noccr <- FindClusters(object=sc.noccr, reduction.type="pca", dims.use=1:10,
+                          resolution=0.6, print.output=0, save.SNN=T)
+```
+
+### Compile Experiment and Seurat Cluster
+
+This cell produces a heatmap to analyze the how Seurat clustering performs to separate
+the experiments.
+
+```{r}
+exp.names <- c("r06_5", "r18_5", "s02", "s03", "r14_5", "r06_15",
+               "r16_15", "r14_15", "r16_5", "caov3", "r18_15", "parent")
+names(exp.names) <- 1:12
+
+get.pop.name <- function(bc) {
+  exp.names[as.numeric(strsplit(bc, "-")[[1]][2])]
+}
+
+get.exp.clust.hm <- function(sc) {
+  exps.clusts <- data.frame(
+    experiment=sapply(sc@cell.names, get.pop.name),
+    cluster=as.character(sc@ident),
+    stringsAsFactors=F
+  )
+  rownames(exps.clusts) <- sc@cell.names
+  
+  clust.count <- ddply(exps.clusts, .(exps.clusts$cluster, exps.clusts$experiment), nrow)
+  names(clust.count) <- c("cluster", "experiment", "count")
+  clust.count.mat <- acast(clust.count, cluster~experiment, value.var="count", fill=0)
+  clust.count.mat <- clust.count.mat/colSums(clust.count.mat)[col(clust.count.mat)]
+  
+  exps.clusts.hm <- pheatmap(clust.count.mat, cluster_rows=F, cluster_cols=T, 
+                     show_rownames=T, show_colnames=T, silent=F,
+                     fontsize=20, background_color="black")
+}
+
+get.exp.clust.hm(sc.ccr)
+get.exp.clust.hm(sc.noccr)
+```
+
+Based on the heatmaps above, the clusters can be divided into the following:
+
+**CCR**
+
+*Sensitive*: 3, 8
+
+*Resistant*: 0, 1, 2, 4, 5, 6, 7, 9
+
+**No CCR**
+
+*Sensitive*: 0, 3
+
+*Resistant*: 1, 2, 4, 5, 6, 7, 8, 9
+
+### Find DEG Markers
+
+```{r}
+ccr.markers <- FindMarkers(object=sc.ccr, ident.1=c(3, 8), 
+                           ident.2 = c(0, 1, 2, 4, 5, 6, 7, 9))
+
+noccr.markers <- FindMarkers(object=sc.noccr, ident.1 = c(0, 3),
+                             ident.2 = c(1, 2, 4, 5, 6, 7, 8, 9))
+```
+
+### Heatmap Of Top 10 Genes In Each Cluster
+
+```{r fig.height=11, fig.width=12}
+ccr.top.10.genes <- rownames(ccr.markers)[1:50]
+DoHeatmap(object=sc.ccr, genes.use=ccr.top.10.genes, slim.col.label=T, remove.key=T)
+
+noccr.top.10.genes <- rownames(noccr.markers)[1:50]
+DoHeatmap(object=sc.noccr, genes.use=noccr.top.10.genes, slim.col.label=T, remove.key=T)
+```
+
+### Load Gene Sets
+
+```{r results="hide"}
+hallmarks.full <- GSA.read.gmt("../msigdb/h.all.v6.1.symbols.gmt")
+hallmarks <- hallmarks.full$genesets
+names(hallmarks) <- hallmarks.full$geneset.names
+
+reactome.full <- GSA.read.gmt("../msigdb/c2.cp.reactome.v6.1.symbols.gmt")
+reactome <- reactome.full$genesets
+names(reactome) <- reactome.full$geneset.names
+```
+
+### GSEA Wrapper
+
+```{r}
+run.fgsea <- function(gene.set, pcut, markers) {
+  cluster.stats <- markers$avg_logFC
+  names(cluster.stats) <- rownames(markers)
+  res <- fgsea(pathways=gene.set, stats=cluster.stats, nperm=10000, minSize=10)
+  res <- res[res$padj<pcut,]
+  return(res)
+}
+```
+
+### Run GSEA
+
+```{r}
+ccr.hmrks <- run.fgsea(hallmarks, 0.05, ccr.markers)
+noccr.hmrks <- run.fgsea(hallmarks, 0.05, noccr.markers)
+```
+
