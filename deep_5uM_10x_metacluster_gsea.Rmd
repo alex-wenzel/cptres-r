@@ -1,0 +1,164 @@
+---
+title: "deep_5uM 10X Metacluster GSEA"
+output: html_notebook
+---
+
+This performs a similar analysis to [deep_5uM_cca_cluster_comp.Rmd](https://github.com/alex-wenzel/cptres-r/blob/master/deep_5uM_cca_cluster_comp.Rmd)
+except without `Seurat` cell cycle regression or clustering. Membership in sensitive or resistant groups
+is determined by `10X` clustering only (clusters 1-3 being sensitive, all others being resistant). 
+
+### Libraries
+
+```{r}
+library(grid)
+library(plyr)
+library(dplyr)
+library(GSA)
+library(liger)
+library(matrixStats)
+library(parallel)
+library(pheatmap)
+library(Seurat)
+library(stringr)
+library(reshape2)
+library(fgsea)
+library(biomaRt)
+```
+
+### Load Seurat
+
+Load data ***without*** applying cell cycle regression.
+
+```{r}
+scdata <- Read10X(data.dir="../deep_5uM/")
+sc <- CreateSeuratObject(raw.data=scdata, min.cells=3, min.genes=3, project="deep_5uM")
+sc <- NormalizeData(object=sc, normalization.method="LogNormalize", scale.factor=10000)
+sc <- ScaleData(object=sc)
+```
+
+### Map Experiment Names
+
+```{r}
+exp.names <- c("S02", "S03", "caov3", "parent", "R06_5uM", "R14_5uM",
+               "R16_5uM", "R18_5uM")
+names(exp.names) <- 1:8
+get.pop.name <- function(bc) {
+  exp.names[as.numeric(strsplit(bc, "-")[[1]][2])]
+}
+```
+
+### Compile Cell Metadata
+
+Get the experiment name and `10X` graph cluster membership for each cell.
+
+```{r}
+cells.metadata = data.frame(
+  experiment = sapply(sc@cell.names, get.pop.name),
+  cluster = as.numeric(read.csv("../deep_5uM/graphclust/clusters.csv")$Cluster),
+  row.names = sc@cell.names,
+  stringsAsFactors = F
+)
+```
+
+### Meta Cluster Assignment Function
+
+```{r}
+get.meta.cluster <- function(experiment, cluster) {
+  if (cluster <= 3) {
+    paste(experiment, "_sen", sep="")
+  } else {
+    paste(experiment, "_res", sep="")
+  }
+}
+```
+
+### Assign Meta Clusters
+
+```{r}
+cells.metadata$metacluster <- mapply(get.meta.cluster, cells.metadata$experiment,
+                                     cells.metadata$cluster)
+sc@ident <- as.factor(cells.metadata$metacluster)
+attributes(sc@ident)$names <- sc@cell.names
+```
+
+### Find DEG Markers
+
+```{r}
+sc.markers <- FindAllMarkers(object=sc, min.pct=0, thresh.use=0)
+```
+
+### Top 10 Genes in Each Cluster
+
+```{r fig.height=15, fig.width=15}
+top.10.genes <- sc.markers %>% group_by(cluster) %>% top_n(10, avg_logFC)
+```
+
+### Heatmap of Untreated Cells
+
+```{r}
+untreated.markers <- FindMarkers(object=sc, ident.1=c("caov3_sen", "parent_sen", "S02_sen", "S03_sen"),
+                                 ident.2=c("caov3_res", "parent_res", "S02_res", "S03_res"))
+```
+
+### Untreated Cells Heatmap
+
+```{r fig.width=15}
+untreated.cell.names = rownames(cells.metadata[cells.metadata$experiment %in% c("caov3", "parent", "S02", "S03"),])
+DoHeatmap(object=sc, genes.use=rownames(untreated.markers)[1:50], slim.col.label=T,
+          remove.key=T, cells.use=untreated.cell.names)
+```
+
+### Load Gene Sets
+
+```{r results="hide"}
+hallmarks.full <- GSA.read.gmt("../msigdb/h.all.v6.1.symbols.gmt")
+hallmarks <- hallmarks.full$genesets
+names(hallmarks) <- hallmarks.full$geneset.names
+
+reactome.full <- GSA.read.gmt("../msigdb/c2.cp.reactome.v6.1.symbols.gmt")
+reactome <- reactome.full$genesets
+names(reactome) <- reactome.full$geneset.names
+```
+
+### GSEA Wrapper
+
+```{r}
+run.fgsea <- function(gene.set, pcut, markers) {
+  cluster.stats <- markers$avg_logFC
+  names(cluster.stats) <- rownames(markers)
+  res <- fgsea(pathways=gene.set, stats=cluster.stats, nperm=10000, minSize=10)
+  res <- res[res$padj<pcut,]
+  return(res)
+}
+```
+
+### Untreated Cells GSEA
+
+```{r}
+hmrks <- run.fgsea(hallmarks, 0.05, untreated.markers)
+react <- run.fgsea(reactome, 0.05, untreated.markers)
+```
+
+### Add Entrez IDS
+
+Add Entrez Gene IDs to `untreated.markers` for input into `RGES`
+
+```{r}
+ensembl <- useMart("ensembl", dataset="hsapiens_gene_ensembl")
+query.values <- rownames(untreated.markers)
+query.filters=c("hgnc_symbol")
+query.attributes=c("hgnc_symbol", "entrezgene")
+query.res <- getBM(attributes=query.attributes, filters=query.filters, values=query.values,
+                   mart=ensembl, uniqueRows=F)
+dupRows <- union(which(duplicated(query.res[,1])), which(duplicated(query.res[,2])))
+entrezIds <- query.res[-dupRows]
+entrezIds <- entrezIds[!duplicated(entrezIds$hgnc_symbol),]
+rownames(entrezIds) <- entrezIds$hgnc_symbol
+
+map.entrez <- function(symbol){entrezIds[symbol,][2]}
+
+untreated.markers$entrezid <- sapply(rownames(test), map.entrez)
+untreated.markers$entrezid <- unlist(untreated.markers$entrezid)
+write.table(untreated.markers, "../RGES/deep_untreated_markers.tsv", sep='\t', quote=F, row.names=F)
+```
+
