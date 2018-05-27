@@ -1,0 +1,109 @@
+---
+title: "10x_c14agg Sample GSEA"
+output: html_notebook
+---
+
+This notebook performs GSEA on the R14 clones without clustering - it groups them by sample of origin. This notebook
+does ***not*** use cell cycle regression.
+
+### Libraries
+
+```{r results="hide"}
+library(grid)
+library(plyr)
+library(dplyr)
+library(GSA)
+library(liger)
+library(matrixStats)
+library(parallel)
+library(pheatmap)
+library(Seurat)
+library(stringr)
+library(reshape2)
+library(fgsea)
+```
+
+### Load Seurat
+
+Again, *no cell cycle regression!!*
+
+```{r}
+scdata <- Read10X(data.dir="../10x_c14agg/")
+sc <- CreateSeuratObject(raw.data=scdata, min.cells=3, min.genes=3, project="10x_c14agg")
+sc <- NormalizeData(object=sc, normalization.method="LogNormalize", scale.factor=10000)
+sc <- ScaleData(object=sc)
+```
+
+### Assign Sample Names
+
+Assign the cell sample of origin to use in place of clustering results.
+
+```{r}
+exp.names <- c("r14_10u", "s02", "r14_15u_E", "s03", "r14_5u",
+               "r14_15u_L", "caov3", "parent")
+names(exp.names) <- 1:8
+
+get.pop.name <- function(bc) {
+  exp.names[as.numeric(strsplit(bc, "-")[[1]][2])]
+}
+sc@ident <- as.factor(sapply(sc@cell.names, get.pop.name))
+attributes(sc@ident)$names <- sc@cell.names
+```
+
+### Load Gene Sets
+
+```{r results="hide"}
+hallmarks.full <- GSA.read.gmt("../msigdb/h.all.v6.1.symbols.gmt")
+hallmarks <- hallmarks.full$genesets
+names(hallmarks) <- hallmarks.full$geneset.names
+
+reactome.full <- GSA.read.gmt("../msigdb/c2.cp.reactome.v6.1.symbols.gmt")
+reactome <- reactome.full$genesets
+names(reactome) <- reactome.full$geneset.names
+```
+
+### GSEA Wrapper
+
+```{r}
+run.fgsea <- function(cluster.name, gene.set, pcut, markers) {
+  cluster.markers <- markers[markers$cluster==cluster.name,]
+  cluster.stats <- cluster.markers$avg_logFC
+  names(cluster.stats) <- cluster.markers$gene
+  res <- fgsea(pathways=gene.set, stats=cluster.stats, nperm=10000, minSize=10)
+  res <- res[res$padj<pcut,]
+  res$cluster <- cluster.name
+  return(res)
+}
+```
+
+### Find DEG Markers
+
+```{r}
+sc.markers <- FindAllMarkers(object=sc, min.pct=0, thresh.use=0)
+```
+
+### Heatmap Of Top 10 Genes In Each Cluster
+
+```{r fig.height=11, fig.width=12}
+top.10.genes <- sc.markers %>% group_by(cluster) %>% top_n(10, avg_logFC)
+DoHeatmap(object=sc, genes.use=top.10.genes$gene, slim.col.label=T, remove.key=T)
+```
+
+### Run GSEA
+
+```{r}
+hmrks <- run.fgsea("r14_10u", hallmarks, 0.05, sc.markers)
+
+for (i in 2:length(exp.names)) {
+  hmrks <- rbind(hmrks, run.fgsea(exp.names[i], hallmarks, 0.05, sc.markers))
+}
+```
+
+### Matrix + Heatmap
+
+```{r}
+hmrks.mat <- acast(hmrks, pathway~cluster, value.var="NES", fill=0)
+hmrks.hm <- pheatmap(hmrks.mat, silent=F, cluster_rows=F, cluster_cols=F,
+                     fontsize=14, border_color="black")
+```
+
