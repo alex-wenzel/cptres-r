@@ -157,8 +157,8 @@ rownames(entrezIds) <- entrezIds$hgnc_symbol
 
 map.entrez <- function(symbol){entrezIds[symbol,][2]}
 
-untreated.markers$entrezid <- sapply(rownames(test), map.entrez)
-untreated.markers$entrezid <- unlist(untreated.markers$entrezid)
+untreated.markers$entrezgene <- sapply(rownames(untreated.markers), map.entrez)
+untreated.markers$entrezgene <- unlist(untreated.markers$entrezgene)
 write.table(untreated.markers, "../RGES/deep_untreated_markers.tsv", sep='\t', quote=F, row.names=F)
 ```
 
