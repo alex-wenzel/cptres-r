@@ -1,0 +1,143 @@
+---
+title: "10x_5_15_deep_5um_step5_comp"
+output: html_notebook
+---
+
+This notebook compares the graph based clustering for the step 5 cells in the original `10x_5_15` and the deep
+`deep_5uM` sequencing.
+
+### Libraries
+
+```{r}
+library(grid)
+library(plyr)
+library(dplyr)
+library(GSA)
+library(liger)
+library(matrixStats)
+library(parallel)
+library(pheatmap)
+library(Seurat)
+library(stringr)
+library(reshape2)
+library(fgsea)
+library(biomaRt)
+```
+
+### Load `10x_5_15`
+
+```{r}
+scdata.10x.5.15 <- Read10X(data.dir="../full_28k/raw28k/")
+sc.10x.5.15 <- CreateSeuratObject(raw.data=scdata.10x.5.15, min.cells=3, min.genes=3, project="10x_5_15")
+sc.10x.5.15 <- NormalizeData(object=sc.10x.5.15, normalization.method="LogNormalize", scale.factor=10000)
+sc.10x.5.15 <- ScaleData(object=sc.10x.5.15)
+```
+
+### Load `deep_5uM`
+
+```{r}
+sc.data.deep.5um <- Read10X(data.dir="../deep_5uM/")
+sc.deep.5um <- CreateSeuratObject(raw.data=sc.data.deep.5um, min.cells=3, min.genes=3, project="deep_5um")
+sc.deep.5um <- NormalizeData(object=sc.deep.5um, normalization.method="LogNormalize", scale.factor=10000)
+sc.deep.5um <- ScaleData(object=sc.deep.5um)
+```
+
+### Assign `10x_5_15` Graph Clustering 
+
+```{r}
+clusts <- read.csv("../full_28k/orig_graphclust_14/clusters.csv")$Cluster
+clusts <- paste(clusts, "s", sep="-")
+sc.10x.5.15@ident <- as.factor(clusts)
+names(sc.10x.5.15@ident) <- sc.10x.5.15@cell.names
+```
+
+### Assign `deep_5um` Graph Clustering
+
+```{r}
+clusts <- read.csv("../deep_5uM/graphclust/clusters.csv")$Cluster
+clusts <- paste(clusts, "d", sep="-")
+sc.deep.5um@ident <- as.factor(clusts)
+names(sc.deep.5um@ident) <- sc.deep.5um@cell.names
+```
+
+### Function To Assign `10x_5_15` Experiment
+
+```{r}
+exp.names.10x.5.15 <- c("r06_5", "r18_5", "s02", "s03", "r14_5", "r06_15",
+               "r16_15", "r14_15", "r16_5", "caov3", "r18_15", "parent")
+names(exp.names.10x.5.15) <- 1:12
+get.pop.name.10x.5.15 <- function(bc) {
+  exp.names.10x.5.15[as.numeric(strsplit(bc, "-")[[1]][2])]
+}
+```
+
+### Function To Assign `deep_5uM` Experiment
+
+```{r}
+exp.names.deep.5um <- c("S02", "S03", "caov3", "parent", "r06_5", "r14_5",                                                  
+               "r16_5", "r18_5")                                                                                   
+names(exp.names.deep.5um) <- 1:8
+get.pop.name.deep.5um <- function(bc) {
+  exp.names.deep.5um[as.numeric(strsplit(bc, "-")[[1]][2])]                                                                     
+}
+```
+
+### Get Barcode Prefix
+
+```{r}
+get.bc.exp.10x.5.15 <- function(bc) {
+  paste(strsplit(bc, "-")[[1]][1], get.pop.name.10x.5.15(bc), sep="-")
+}
+
+get.bc.exp.deep.5um <- function(bc) {
+  paste(strsplit(bc, "-")[[1]][1], get.pop.name.deep.5um(bc), sep="-")
+}
+```
+
+
+### Compile Barcode Prefix, Experiment Names
+
+```{r}
+cells.10x <- data.frame(
+  cluster.10x <- sc.10x.5.15@ident,
+  experiment.10x <- sapply(sc.10x.5.15@cell.names, get.pop.name.10x.5.15),
+  stringsAsFactors=F
+)
+colnames(cells.10x) <- c("cluster.10x", "experiment.10x")
+rownames(cells.10x) <- sapply(sc.10x.5.15@cell.names, get.bc.exp.10x.5.15)
+
+cells.deep5 <- data.frame(
+  cluster.deep5 <- sc.deep.5um@ident,
+  experiment.deep5 <- sapply(sc.deep.5um@cell.names, get.pop.name.deep.5um),
+  stringsAsFactors=F
+)
+colnames(cells.deep5) <- c("cluster.deep5", "experiment.deep5")
+rownames(cells.deep5) <- sapply(sc.deep.5um@cell.names, get.bc.exp.deep.5um)
+
+all.cells <- merge(cells.10x, cells.deep5, by.x="row.names", by.y="row.names")
+all.cells.s5 <- all.cells[all.cells$experiment.10x %in% c("r06_5", "r14_5", "r16_5", "r18_5"),]
+```
+
+### Convert To Matrix For Heatmap
+
+```{r}
+all.cells.s5.count <- ddply(all.cells.s5, .(all.cells.s5$cluster.10x, all.cells.s5$cluster.deep5), nrow)
+names(all.cells.s5.count) <- c("cluster.10x", "cluster.deep5", "count")
+all.cells.s5.mat <- acast(all.cells.s5.count, cluster.10x~cluster.deep5, value.var="count", fill=0)
+```
+
+
+```{r}
+all.cells.s5.hm <- pheatmap(all.cells.s5.mat, silent=F, cluster_rows=F, cluster_cols=F, fontsize=14, border_color="black")
+```
+
+### Heatmap of `10x_5_15` By 
+
+```{r}
+clust.count <- ddply(cells.10x, .(cells.10x$cluster.10x, cells.10x$experiment.10x), nrow)
+names(clust.count) <- c("cluster", "experiment", "count")
+clust.count.mat <- acast(clust.count, cluster~experiment, value.var="count", fill=0)
+clust.count.mat <- clust.count.mat/colSums(clust.count.mat)[col(clust.count.mat)]
+pheatmap(clust.count.mat, cluster_rows=F, cluster_cols=T, fontsize=14, border_color="black")
+```
+
