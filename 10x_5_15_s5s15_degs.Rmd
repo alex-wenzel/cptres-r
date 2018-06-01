@@ -1,0 +1,140 @@
+---
+title: "10x_5_15 Step 5 vs Step 15 Differential Genes"
+output: html_notebook
+---
+
+This notebook builds heatmaps of differentially expressed genes between each of the step5 cells and 
+step15 cells within each of the four resistant clones.
+
+### Libraries
+
+```{r}
+library(grid)
+library(plyr)
+library(dplyr)
+library(GSA)
+library(liger)
+library(matrixStats)
+library(parallel)
+library(pheatmap)
+library(Seurat)
+library(stringr)
+library(reshape2)
+library(fgsea)
+library(biomaRt)
+```
+
+### Load Seurat
+
+Load data ***without*** applying cell cycle regression.
+
+```{r}
+scdata <- Read10X(data.dir="../full_28k/raw28k/")
+sc <- CreateSeuratObject(raw.data=scdata, min.cells=3, min.genes=3, project="10x_5_15")
+sc <- NormalizeData(object=sc, normalization.method="LogNormalize", scale.factor=10000)
+sc <- ScaleData(object=sc)
+```
+
+### Assign Experiment Names
+
+```{r}
+exp.names <- c("r06_5", "r18_5", "s02", "s03", "r14_5", "r06_15",
+               "r16_15", "r14_15", "r16_5", "caov3", "r18_15", "parent")
+names(exp.names) <- 1:12
+
+get.pop.name <- function(bc) {
+  exp.names[as.numeric(strsplit(bc, "-")[[1]][2])]
+}
+
+sc@ident <- as.factor(sapply(sc@cell.names, get.pop.name))
+names(sc@ident) <- sc@cell.names
+```
+
+### Differential Genes Between Steps For Each Clone
+
+```{r}
+markers.r06 <- FindMarkers(object=sc, ident.1="r06_5", ident.2="r06_15")
+markers.r14 <- FindMarkers(object=sc, ident.1="r14_5", ident.2="r14_15")
+markers.r16 <- FindMarkers(object=sc, ident.1="r16_5", ident.2="r16_15")
+markers.r18 <- FindMarkers(object=sc, ident.1="r18_5", ident.2="r18_15")
+```
+### Sort Markers by Fold Change
+
+```{r}
+markers.r06 <- markers.r06[order(-markers.r06$avg_logFC),]
+markers.r14 <- markers.r14[order(-markers.r14$avg_logFC),]
+markers.r16 <- markers.r16[order(-markers.r16$avg_logFC),]
+markers.r18 <- markers.r18[order(-markers.r18$avg_logFC),]
+```
+
+### Top Upregulated Genes
+
+```{r}
+r06.top.50 <- c(head(rownames(markers.r06), 25), tail(rownames(markers.r06), 25))
+r14.top.50 <- c(head(rownames(markers.r14), 25), tail(rownames(markers.r14), 25))
+r16.top.50 <- c(head(rownames(markers.r16), 25), tail(rownames(markers.r16), 25))
+r18.top.50 <- c(head(rownames(markers.r18), 25), tail(rownames(markers.r18), 25))
+```
+
+### Clone DEG Heatmaps
+
+```{r fig.height=8}
+DoHeatmap(object=sc, genes.use=r06.top.50, slim.col.label=T, remove.key=T,
+          cells.use=sc@cell.names[sapply(sc@cell.names, get.pop.name) %in% c("r06_5", "r06_15")])
+```
+
+```{r fig.height=8}
+DoHeatmap(object=sc, genes.use=r14.top.50, slim.col.label=T, remove.key=T,
+          cells.use=sc@cell.names[sapply(sc@cell.names, get.pop.name) %in% c("r14_5", "r14_15")])
+```
+
+```{r fig.height=8}
+DoHeatmap(object=sc, genes.use=r16.top.50, slim.col.label=T, remove.key=T,
+          cells.use=sc@cell.names[sapply(sc@cell.names, get.pop.name) %in% c("r16_5", "r16_15")])
+```
+
+```{r fig.height=8}
+DoHeatmap(object=sc, genes.use=r18.top.50, slim.col.label=T, remove.key=T,
+          cells.use=sc@cell.names[sapply(sc@cell.names, get.pop.name) %in% c("r18_5", "r18_15")])
+```
+
+### Load Gene Sets
+
+```{r}
+hallmarks.full <- GSA.read.gmt("../msigdb/h.all.v6.1.symbols.gmt")
+hallmarks <- hallmarks.full$genesets
+names(hallmarks) <- hallmarks.full$geneset.names
+
+reactome.full <- GSA.read.gmt("../msigdb/c2.cp.reactome.v6.1.symbols.gmt")
+reactome <- reactome.full$genesets
+names(reactome) <- reactome.full$geneset.names
+```
+
+### GSEA Wrapper
+
+```{r}
+run.fgsea <- function(gene.set, pcut, markers) {
+  cluster.stats <- markers$avg_logFC
+  names(cluster.stats) <- rownames(markers)
+  res <- fgsea(pathways=gene.set, stats=cluster.stats, nperm=10000, minSize=10)
+  res <- res[res$padj<pcut,]
+  return(res)
+}
+```
+
+### Clone GSEAs
+
+```{r}
+r06.hmrks <- run.fgsea(hallmarks, 0.05, markers.r06)
+r06.react <- run.fgsea(reactome, 0.05, markers.r06)
+
+r14.hmrks <- run.fgsea(hallmarks, 0.05, markers.r14)
+r14.react <- run.fgsea(reactome, 0.05, markers.r14)
+
+r16.hmrks <- run.fgsea(hallmarks, 0.05, markers.r16)
+r16.react <- run.fgsea(reactome, 0.05, markers.r16)
+
+r18.hmrks <- run.fgsea(hallmarks, 0.05, markers.r18)
+r18.react <- run.fgsea(reactome, 0.05, markers.r18)
+```
+
