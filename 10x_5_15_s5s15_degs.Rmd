@@ -56,7 +56,7 @@ names(sc@ident) <- sc@cell.names
 markers.r06 <- FindMarkers(object=sc, ident.1="r06_5", ident.2="r06_15")
 markers.r14 <- FindMarkers(object=sc, ident.1="r14_5", ident.2="r14_15")
 markers.r16 <- FindMarkers(object=sc, ident.1="r16_5", ident.2="r16_15")
-markers.r18 <- FindMarkers(object=sc, ident.1="r18_5", ident.2="r18_15")
+markers.r18 <- FindMarkers(object=sc, ident.1="r18_15", ident.2="r18_5")
 ```
 ### Sort Markers by Fold Change
 
