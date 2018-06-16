@@ -6,6 +6,7 @@ on the pyRGES.ipynb notebook
 import json
 from multiprocessing import Pool
 import sklearn
+from scipy.stats import binom_test
 import sys
 sys.path.insert(0, '')
 
@@ -20,8 +21,6 @@ DE = DiffEx(PHENOTYPE_PATH)
 DE.data.rename(columns={"avg_logFC":"log2FoldChange"}, inplace=True)
 
 LINCS = L1KGCTX(DRUG_PROFILE_PATH)
-print(LINCS.data)  #Debug
-sys.exit(1)  #Debug
 
 OUTPATH = "RGES/deep_untreated_scores.json"
 PERMS_PATH = "RGES/deep_untreated_permutations.json"
@@ -42,22 +41,46 @@ def shuffle_sigs():
     LINCS.data = LINCS.data.apply(sklearn.utils.shuffle, axis=0)
     LINCS.data.index = map(str, sorted(map(int, list(LINCS.data.index))))
 
-PERMUTATIONS = 100
+def stop_permuting(true_score, perm_vals):
+    if true_score < 0:
+        n_more_extreme = len([s for s in perm_vals if s < true_score])
+    else:
+        n_more_extreme = len([s for s in perm_vals if s > true_score])
+    return binom_test(n_more_extreme, len(perm_vals)+1, 0.05, alternative='greater')*2 < 0.05
+
+PERMUTATIONS = 100000
 PROCESSES = 16
 
-print("Calculating true scores...")
-true_scores = mt_score(PROCESSES)
-open(OUTPATH, 'w').write(json.dumps(true_scores))
+try:
+    true_scores = json.loads(open(OUTPATH).read())
+except FileNotFoundError:
+    print("Calculating true scores...")
+    true_scores = mt_score(PROCESSES)
+    open(OUTPATH, 'w').write(json.dumps(true_scores))
 
-perms_d = {signame: [] for signame in list(LINCS.data)}
+try:
+    perms_d = json.loads(open(PERMS_PATH).read())
+    to_del = []
+    for signame in list(LINCS.data):
+        if stop_permuting(true_scores[signame], perms_d[signame]):
+            to_del.append(signame)
+    LINCS.data.drop(to_del, axis=1, inplace=True)
+except FileNotFoundError:
+    perms_d = {signame: [] for signame in list(LINCS.data)}
 
-for i in range(PERMUTATIONS):
-    print("Starting permutation "+str(i))
+for i in range(1, PERMUTATIONS+1):
+    if len(list(LINCS.data)) == 0:
+        break
+    print("Starting permutation "+str(i)+" with "+str(len(list(LINCS.data)))+" profiles remaining...")
     print("\tShuffling drug signature rankings...")
     shuffle_sigs()
     print("\tCalculating RGES for all profiles...")
     p_res = mt_score(PROCESSES)
-    for signame in p_res.keys():
+    to_del = []
+    for signame in list(LINCS.data):
         perms_d[signame].append(p_res[signame])
+        if stop_permuting(true_scores[signame], perms_d[signame]):
+            to_del.append(signame)
+    LINCS.data.drop(to_del, axis=1, inplace=True)
     open(PERMS_PATH, 'w').write(json.dumps(perms_d))
 open(PERMS_PATH, 'w').write(json.dumps(perms_d))
